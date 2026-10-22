@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Particles - Voidrunner</title>
+<link rel="icon" href="data:,">
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #05070e; }
+  canvas.pf-gl { position: fixed; inset: 0; width: 100vw; height: 100vh; }
+
+  .hud { position: fixed; z-index: 10; color: #9fb6bb; pointer-events: none;
+    font: 12px/1.6 ui-monospace, Consolas, monospace; text-shadow: 0 0 6px #000; }
+  #hud-tl { left: 12px; top: 10px; white-space: pre; }
+  #hud-tr { right: 12px; top: 10px; text-align: right; white-space: pre; }
+  #hud-bl { left: 12px; bottom: 10px; white-space: pre; }
+  #hud-msg { left: 50%; top: 26%; transform: translateX(-50%);
+    font-size: 17px; letter-spacing: .14em; color: #bfe8d8; opacity: 0;
+    transition: opacity .3s; text-transform: uppercase; }
+  #hud-keys { left: 50%; bottom: 10px; transform: translateX(-50%);
+    color: #4d6a70; font-size: 11px; }
+
+  #over {
+    position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    z-index: 20; display: none; text-align: center;
+    color: #cfe0e3; font: 13px/1.8 ui-monospace, Consolas, monospace;
+    background: rgba(6, 14, 20, .82); border: 1px solid rgba(120, 160, 170, .25);
+    border-radius: 6px; padding: 18px 26px; backdrop-filter: blur(6px);
+  }
+  #over h2 { margin: 0 0 6px; font-size: 15px; letter-spacing: .2em; color: #f2b8a0; }
+  #over .board { margin: 10px 0; white-space: pre; color: #9fb6bb; }
+  #over input {
+    background: #0c2127; color: #cfe0e3; border: 1px solid rgba(120,160,170,.3);
+    border-radius: 3px; padding: 4px 8px; font: inherit; width: 140px; text-align: center;
+  }
+  #over .hint { color: #5f7a80; font-size: 11px; }
+
+  #hub { position: fixed; right: 12px; bottom: 10px; z-index: 10; color: #4d6a70;
+    font: 11px/1.6 ui-monospace, Consolas, monospace; text-decoration: none; }
+  #hub:hover { color: #9fb6bb; }
+</style>
+</head>
+<body>
+<div id="hud-tl" class="hud"></div>
+<div id="hud-tr" class="hud"></div>
+<div id="hud-bl" class="hud"></div>
+<div id="hud-msg" class="hud"></div>
+<div id="hud-keys" class="hud">W/S thrust &middot; A/D strafe &middot; R/F lift &middot; arrows steer &middot; Q/E roll &middot; shift boost &middot; ctrl drift &middot; space fire &middot; T track</div>
+<div id="over"></div>
+<a id="hub" href="index.html">&larr; home</a>
+<script type="module" src="src/pages/space.js"></script>
+</body>
+</html>

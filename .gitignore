@@ -1,0 +1,5 @@
+shots/
+.audit/
+.playwright-mcp/
+skill-observations/
+node_modules/

@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Particles - Playground</title>
+<link rel="icon" href="data:,">
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #061317; }
+  canvas.pf-gl { position: fixed; inset: 0; width: 100vw; height: 100vh; }
+
+  #panel {
+    position: fixed; top: 0; right: 0; bottom: 0; width: 320px;
+    overflow-y: auto; z-index: 10;
+    background: rgba(8, 22, 27, .82); backdrop-filter: blur(6px);
+    border-left: 1px solid rgba(120, 160, 170, .15);
+    color: #9fb6bb; font: 12px/1.5 ui-monospace, Consolas, monospace;
+    padding: 10px 14px 40px; box-sizing: border-box;
+  }
+  #panel h1 { font-size: 13px; color: #cfe0e3; margin: 6px 0 2px; font-weight: 600; }
+  #panel .sub { color: #5f7a80; margin-bottom: 10px; }
+  #panel details { border-top: 1px solid rgba(120,160,170,.12); padding: 4px 0; }
+  #panel summary { cursor: pointer; color: #cfe0e3; font-weight: 600; padding: 4px 0; user-select: none; }
+  #panel .row { display: flex; align-items: center; gap: 8px; margin: 3px 0; }
+  #panel .row label { flex: 0 0 118px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #panel .row output { flex: 0 0 52px; text-align: right; color: #7fd08a; }
+  #panel input[type=range] { flex: 1; min-width: 0; accent-color: #3beb5e; }
+  #panel input[type=color] { flex: 1; height: 20px; border: 0; padding: 0; background: none; }
+  #panel input[type=number], #panel input[type=text], #panel select {
+    flex: 1; min-width: 0; background: #0c2127; color: #cfe0e3;
+    border: 1px solid rgba(120,160,170,.25); border-radius: 3px; padding: 3px 6px; font: inherit;
+  }
+  #panel button {
+    background: #123039; color: #cfe0e3; border: 1px solid rgba(120,160,170,.3);
+    border-radius: 3px; padding: 4px 10px; font: inherit; cursor: pointer; margin-right: 4px;
+  }
+  #panel button:hover { background: #17404b; }
+  #panel .btns { margin: 6px 0; }
+  #panel .hint { color: #5f7a80; font-size: 11px; margin: 8px 0 0; }
+  #stats { position: fixed; left: 10px; top: 8px; z-index: 10; color: #4d6a70;
+    font: 11px/1.6 ui-monospace, Consolas, monospace; pointer-events: none; white-space: pre; }
+  #hub { position: fixed; left: 10px; bottom: 10px; z-index: 10; color: #4d6a70;
+    font: 11px/1.6 ui-monospace, Consolas, monospace; text-decoration: none; }
+  #hub:hover { color: #9fb6bb; }
+</style>
+</head>
+<body>
+<div id="stats"></div>
+<div id="panel"></div>
+<a id="hub" href="index.html">&larr; home</a>
+<script type="module" src="src/pages/playground.js"></script>
+</body>
+</html>

@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Particles - Telepresence</title>
+<link rel="icon" href="data:,">
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #061317; }
+  canvas.pf-gl { position: fixed; inset: 0; width: 100vw; height: 100vh; }
+
+  #status { position: fixed; left: 10px; top: 8px; z-index: 10; color: #4d6a70;
+    font: 11px/1.6 ui-monospace, Consolas, monospace; white-space: pre;
+    pointer-events: auto; }
+  #status[data-mode="fallback"] { cursor: pointer; }
+  #peers { position: fixed; left: 10px; top: 26px; z-index: 10; pointer-events: none; }
+  #peers span { display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+    margin-right: 6px; }
+  #share { position: fixed; right: 10px; top: 8px; z-index: 10; color: #4d6a70;
+    font: 11px/1.6 ui-monospace, Consolas, monospace; cursor: pointer;
+    max-width: 44vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #share:hover { color: #9fb6bb; }
+  #preview { position: fixed; right: 10px; bottom: 34px; z-index: 10;
+    transform: scaleX(-1); pointer-events: none; }
+  #preview video { display: block; width: 140px; opacity: 0.85; border-radius: 3px; }
+  #note { position: fixed; right: 10px; bottom: 10px; z-index: 10; color: #4d6a70;
+    font: 11px/1.6 ui-monospace, Consolas, monospace; pointer-events: none; }
+  #hub { position: fixed; left: 10px; bottom: 10px; z-index: 10; color: #4d6a70;
+    font: 11px/1.6 ui-monospace, Consolas, monospace; text-decoration: none; }
+  #hub:hover { color: #9fb6bb; }
+</style>
+</head>
+<body>
+<div id="status" data-mode="boot"></div>
+<div id="peers"></div>
+<div id="share" title="send this link"></div>
+<div id="preview"></div>
+<div id="note">your camera stays local - only points and cursor cross the wire</div>
+<a id="hub" href="index.html">&larr; home</a>
+<script type="module" src="src/pages/telepresence.js"></script>
+</body>
+</html>

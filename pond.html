@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Particles - Koi Pond</title>
+<link rel="icon" href="data:,">
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #051014; }
+  canvas.pf-gl { position: fixed; inset: 0; width: 100vw; height: 100vh; }
+  #hub { position: fixed; left: 10px; bottom: 10px; z-index: 10; color: #4d6a70;
+    font: 11px/1.6 ui-monospace, Consolas, monospace; text-decoration: none; }
+  #hub:hover { color: #9fb6bb; }
+  #tip { position: fixed; right: 12px; bottom: 10px; z-index: 10; color: #33504f;
+    font: 11px/1.6 ui-monospace, Consolas, monospace; pointer-events: none; }
+</style>
+</head>
+<body>
+<a id="hub" href="index.html">&larr; home</a>
+<div id="tip">click - feed &middot; hold - pull &middot; drag fast - stir</div>
+<script type="module" src="src/pages/pond.js"></script>
+</body>
+</html>

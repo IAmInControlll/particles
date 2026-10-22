@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Particles</title>
+<link rel="icon" href="data:,">
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #080c14; }
+  canvas.pf-gl { position: fixed; inset: 0; width: 100vw; height: 100vh; }
+
+  #menu {
+    position: fixed; left: 50%; top: 64%; transform: translate(-50%, -50%);
+    z-index: 5; width: min(360px, 86vw);
+    display: flex; flex-direction: column; gap: 10px;
+    font: 13px/1.5 ui-monospace, Consolas, monospace;
+  }
+  .card {
+    display: block; padding: 12px 16px; text-decoration: none;
+    color: #cfe0e3; background: rgba(8, 18, 24, .72); backdrop-filter: blur(6px);
+    border: 1px solid rgba(120, 160, 170, .25); border-radius: 6px;
+  }
+  a.card:hover { border-color: rgba(120, 220, 170, .55); background: rgba(12, 30, 36, .82); }
+  .card .name { font-weight: 600; }
+  .card .tag { float: right; font-size: 10px; letter-spacing: .08em;
+    text-transform: uppercase; color: #3beb5e; margin-top: 2px; }
+  .card .desc { color: #5f7a80; font-size: 11px; margin-top: 2px; }
+  .card.soon { opacity: .45; cursor: default; }
+  .card.soon .tag { color: #5f7a80; }
+</style>
+</head>
+<body>
+<nav id="menu" aria-label="creations"></nav>
+<script type="module" src="src/pages/home.js"></script>
+</body>
+</html>
