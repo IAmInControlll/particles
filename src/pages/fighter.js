@@ -14,7 +14,7 @@ Object.assign(PF.CFG, {
 });
 
 PF.reseed(11);
-const field = PF.createField({ N: PF.isMobile() ? 4500 : 9000 });
+const field = PF.createField({ N: PF.isMobile() ? 4500 : 9000, transparent: true, zIndex: 1 });
 if (!field.ok) {
   const b = document.getElementById("banner");
   if (b) b.textContent = "WebGL unavailable";

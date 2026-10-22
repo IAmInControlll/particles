@@ -58,11 +58,16 @@ contract - what you may use, and the no-edits rule) and
 - `dir.cur === -1` means free drift; the playground releases particles
   through the same staggered ramp.
 - `unit = innerHeight / CFG.unitDiv` is the physics length unit ("xu" in
-  slider labels).
-- Every `reserveEvery`th particle always drifts; ~3% are `leader` (bigger,
+  slider labels). `pos`/`home` z is in xu units, not px; positive z =
+  nearer = bigger, brighter sprite.
+- `reserveEvery` defaults to 0 - ambient drifters are opt-in per page
+  (e.g. pond sets 8 for water flecks). ~3% are `leader` (bigger,
   brighter, zero transition stagger).
 - `field.noFlock[i] = 1` exempts a particle from neighbor forces - set it
   for rigid bodies (koi, cockpit, puppets) so flocking can't jitter them.
+- `field.noWell[i] = 1` makes a particle immune to every pointer well -
+  no hover repel, no pull, no capture. Use for drawn elements (backdrops,
+  furniture, HUD) while the rest of the page stays interactive.
 - `field.extraWells` is a list of extra pointer wells `{x, y, down, tint?}`
   (remote or synthetic cursors). They get identical repel/pull/capture
   physics to `field.mouse`; `capt[p]` stores `wellIndex + 1`, and a well

@@ -13,11 +13,19 @@
   #hub:hover { color: #9fb6bb; }
   #tip { position: fixed; right: 12px; bottom: 10px; z-index: 10; color: #33504f;
     font: 11px/1.6 ui-monospace, Consolas, monospace; pointer-events: none; }
+  #fishctl { position: fixed; right: 12px; bottom: 30px; z-index: 10;
+    color: #33504f; font: 11px/1.6 ui-monospace, Consolas, monospace;
+    pointer-events: auto; user-select: none; }
+  #fishctl button { background: none; border: 1px solid #33504f; color: #4d6a70;
+    font: inherit; padding: 0 7px; margin: 0 4px; cursor: pointer; }
+  #fishctl button:hover { color: #9fb6bb; border-color: #4d6a70; }
+  #fnum { display: inline-block; min-width: 14px; text-align: center; color: #4d6a70; }
 </style>
 </head>
 <body>
 <a id="hub" href="index.html">&larr; home</a>
-<div id="tip">click - feed &middot; hold - pull &middot; drag fast - stir</div>
+<div id="fishctl"><button id="fdec">-</button><span id="fnum">0</span><button id="finc">+</button> fish</div>
+<div id="tip">click - feed &middot; hold - stir &middot; drag fast - wake</div>
 <script type="module" src="src/pages/pond.js"></script>
 </body>
 </html>

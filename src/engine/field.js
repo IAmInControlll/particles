@@ -35,6 +35,7 @@ export function createField(opts = {}) {
   const leader = new Uint8Array(N);
   const reserve = new Uint8Array(N);
   const noFlock = new Uint8Array(N); // 1 = exempt from neighbor forces
+  const noWell = new Uint8Array(N); // 1 = immune to all pointer wells
   const size = new Float32Array(N);
   const sz = new Float32Array(N).fill(1);
   const stag = new Float32Array(N);
@@ -56,7 +57,7 @@ export function createField(opts = {}) {
 
   Object.assign(field, {
     pos, vel, col, home, hcol, homed, snap, capt,
-    leader, reserve, size, sz, stag, noFlock,
+    leader, reserve, size, sz, stag, noFlock, noWell,
     extraWells: [], // remote/synthetic cursors {x, y, down, tint?} get the same physics as mouse
     exclude: [],
     drift: { x: innerWidth * 0.7, y: innerHeight * 0.5 },
@@ -192,7 +193,7 @@ export function createField(opts = {}) {
     mouse.over = e.target;
   }, { passive: true });
   addEventListener("pointerdown", (e) => {
-    if (e.pointerType !== "touch" && field.canPull(e)) {
+    if ((e.pointerType !== "touch" || C.touchPull) && field.canPull(e)) {
       mouse.down = true;
       e.preventDefault();
     }
@@ -272,6 +273,15 @@ export function createField(opts = {}) {
       } else {
         w.speed = (w.speed || 0) * Math.pow(0.9, dtf);
         w.on = false;
+      }
+      // pullDelay: pull/capture arms only after the press outlives the gate,
+      // so quick clicks never tug particles
+      if (w.down) {
+        if (w.downT === undefined) w.downT = T;
+        w.pressing = T - w.downT >= C.pullDelay;
+      } else {
+        w.downT = undefined;
+        w.pressing = false;
       }
     }
 
@@ -403,6 +413,7 @@ export function createField(opts = {}) {
                C.flowHarm * Math.cos((jx / unit) * C.flowFreq2 - T * C.flowT3 + ph[i + 2])) * C.flowAmp * unit + (drift.x - jx) * C.driftPull;
         fy += (Math.sin((jx / unit) * C.flowFreq + T * C.flowT2 + ph[i + 1]) +
                C.flowHarm * Math.sin((jy / unit) * C.flowFreq2 + T * C.flowT3 * 1.4 + ph[i])) * C.flowAmp * unit + (drift.y - jy) * C.driftPull;
+        fz -= jz * C.zReturn; // repelZ lifts have no restoring force otherwise
       }
 
       // push particles out of exclusion rects
@@ -418,14 +429,14 @@ export function createField(opts = {}) {
         else fy += push;
       }
 
-      if (!capt[p]) {
+      if (!capt[p] && !noWell[p]) {
         for (let wi = 0; wi < wells.length; wi++) {
           const w = wells[wi];
           if (!w.on) continue;
           if (wi === 0 && field.mouseZone && !field.mouseZone(w.x, w.y)) continue;
           const dx = jx - w.x, dy = jy - w.y;
           const dist = Math.hypot(dx, dy) + 1e-4;
-          if (w.down) {
+          if (w.pressing) {
             if (dist < C.pullR * unit) {
               const f = (1 - dist / (C.pullR * unit)) * C.pullAmp * unit;
               fx -= (dx / dist) * f - (dy / dist) * f * C.pullSwirl;

@@ -12,9 +12,7 @@
 
 ## Hub integration
 - [x] hub card: Mirror -> mirror.html (page is linkable and verified;
-  PAGES entry in src/pages/home.js still says `soon: true` - that file
-  is outside my ownership, flipping it is a one-line edit for whoever
-  owns the hub)
+  PAGES entry flipped to a live link by the hub owner)
 
 ## Shared helpers
 - `src/creations/mirror/sampler.js` is engine-free (no src/engine
@@ -35,3 +33,23 @@
   Headless denial surfaces as `NotSupportedError` (headless shell lacks
   a real device path), which maps to the generic "camera unavailable"
   message; the click-to-retry affordance is wired.
+
+## Polish pass (post-review, session 2+)
+
+- Pointer model per user direction: full engine verbs - hover repel,
+  LMB pull, close-range capture orbit, release fling (default
+  `canPull`, exempts interactive DOM). A `field.canPull = () => false`
+  phase was tried and reverted. Silhouette runs unsnapped so pointer
+  forces can displace it; the jump-snap rule in scene.js keeps camera
+  tracking instant while scatter still springs home.
+- Segmentation/distribution reworked over three feedback rounds:
+  border-mean luminance -> border-mean RGB distance, frame-mean speckle
+  -> hysteresis + 3x3 blur + temporal blend, ordinal pick mapping ->
+  fixed cell stations + chamfer nearest-emitter resolve (the old mapping
+  retargeted the whole swarm on count wobble), plus silhouette fill
+  (close+flood+low-dev interior emit) and emit-list share-loading.
+- Grid 240 long side, camera request 640, sample interval 33ms, N 12000
+  desktop / 5000 mobile, emit buffer 4N, `spring` 0.09.
+- Viewfinder: first ~7% of indices draw the sampled rect's perimeter,
+  `out[3]=1` snapped, `?flip=0` disables the mirror transform.
+- `window.__mirror.field` exposes the field for headless probes.

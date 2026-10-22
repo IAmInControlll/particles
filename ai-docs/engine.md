@@ -53,10 +53,17 @@ few baked into shaders at `initGL` (`perspZ`, `perspMin`, `pointMinPx`) -
 call `field.recompile()` after changing those. Keys are grouped: render
 (`pointScale`, `depthFade`, `coreGain`, `twinkle`, `bg`, `additive`), homing
 (`spring*`, `damp*`), flocking (`cohesion`, `align`, `separation`, `neigh*`),
-drift (`flow*`, `driftPull`), pointer (`repel*`, `pull*`, `captureR`,
-`horizon*`, `orb*`, `discTilt`, `fling*`), transitions (`transSpeed`,
-`transStagger`, `directorDur`), init (`N` sizing helpers, `reserveEvery`,
-`leaderChance`, `spawnSpread`).
+drift (`flow*`, `driftPull`, `zReturn`), pointer (`repel*`, `pull*`,
+`pullDelay`, `touchPull`, `captureR`, `horizon*`, `orb*`, `discTilt`,
+`fling*`), transitions (`transSpeed`, `transStagger`, `directorDur`),
+init (`N` sizing helpers, `reserveEvery`, `leaderChance`, `spawnSpread`).
+
+Notables: `pullDelay` (seconds) gates pull/capture until a press outlives
+it - set ~0.15 to make clicks never tug particles. `touchPull` lets touch
+presses pull/capture like the mouse. `zReturn` springs un-homed
+particles back to z=0 so `repelZ` lifts recover. **z sign:** `pos`/`home`
+z is in xu units (not px); positive z = nearer = larger, brighter sprite
+(`d = perspZ / (perspZ - z)`).
 
 ### `PF.PAL`
 
@@ -76,6 +83,7 @@ event-horizon/heat color.
 | `capt` | u8 | 0 = free, `w+1` = captured by `wells[w]` |
 | `leader`, `reserve` | u8 | init-set style flags |
 | `noFlock` | u8 | 1 = exempt from neighbor forces (rigid bodies) |
+| `noWell` | u8 | 1 = immune to all pointer wells - no repel, pull, or capture; the flag for particles that draw rather than interact |
 | `size` | f32 | per-particle size target (set 0 to despawn) |
 | `stag` | f32 | transition stagger depth |
 
@@ -100,11 +108,29 @@ event-horizon/heat color.
 - `field.start() / field.stop()`, `field.recompile()`,
   `field.T` (sim seconds), `field.canvas`, `field.N`, `field.ok`.
 
+### Pointer verbs - pick your lever
+
+The engine splits pointer behavior into independent verbs. Combine the
+switches; do not reach for the biggest hammer by default.
+
+| You want | Do |
+| --- | --- |
+| Nothing reacts to the cursor | `field.mouseZone = () => false` |
+| Hover repel yes, clicks dead | `field.canPull = () => false` |
+| Pull/capture yes, no hover scatter | `PF.CFG.repelAmp = 0` (page override) |
+| Only some particles immune | `field.noWell[p] = 1` on those indices |
+| Gate by screen region | `field.mouseZone = (x, y) => inRegion(x, y)` |
+| Touch can't pull, mouse can | leave `CFG.touchPull = false` |
+| Custom verbs on a particle subset | `mouseZone = () => false`, then write `vel[]`/`home[]` yourself per frame (see `src/creations/pond/pointer.js`) |
+
 ### `PF` helpers
 
-- `PF.pick(list, i, n)` - uniform index into a point list for particle `i`
-  of `n`. Always use this to scatter particles over a point list; never
-  `list[i % list.length]` (clips when len > n, front-loads when len < n).
+- `PF.pick(list, i, n, len?)` - uniform index into a point list for
+  particle `i` of `n`. Always use this to scatter particles over a point
+  list; never `list[i % list.length]` (clips when len > n, front-loads
+  when len < n). Pass `len` when the list is a typed-array store whose
+  valid prefix is shorter than `.length` (e.g. `pick(store, i, N,
+  store.count)`).
 - `PF.textPoints(text, opts)` - rasterize text to y-up design-space
   `[[x,y],...]` with `{pts, ext}`. Adaptive sampling keeps `pts.length`
   under `maxPoints`.

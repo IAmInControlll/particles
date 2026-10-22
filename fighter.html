@@ -8,6 +8,7 @@
 <style>
   html, body { margin: 0; height: 100%; overflow: hidden; background: #0a0a0f; }
   canvas.pf-gl { position: fixed; inset: 0; width: 100vw; height: 100vh; }
+  #bg, #bodies { position: fixed; inset: 0; width: 100vw; height: 100vh; z-index: 0; pointer-events: none; }
 
   #hud {
     position: fixed; top: 14px; left: 50%; transform: translateX(-50%);
@@ -22,10 +23,30 @@
   #hud .fill { height: 100%; width: 100%; border-radius: 3px; transition: width .25s; }
   #hud .side.left .fill { background: #7fd0ea; }
   #hud .side.right .fill { background: #f09a5a; }
-  #hud .pips { display: flex; gap: 5px; }
-  #hud .pip { width: 7px; height: 7px; border-radius: 50%; background: rgba(120,160,170,.25); }
-  #hud .pip.won { background: #3beb5e; }
   #hud .mid { color: #5f7a80; font-size: 10px; letter-spacing: .18em; }
+
+  #loadout {
+    position: fixed; inset: 0; z-index: 20;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px;
+    font: 11px/1.6 ui-monospace, Consolas, monospace; color: #9fb6bb;
+    background: rgba(6,8,12,.55); user-select: none;
+  }
+  #loadout .title { font-size: 15px; letter-spacing: .3em; text-transform: uppercase; color: #cfe0e3;
+    text-shadow: 0 0 18px rgba(60,200,140,.35); }
+  #loadout .group { display: flex; align-items: center; gap: 10px; }
+  #loadout .label { width: 60px; text-align: right; color: #5f7a80; letter-spacing: .14em; text-transform: uppercase; font-size: 10px; }
+  #loadout button {
+    font: 11px/1 ui-monospace, Consolas, monospace; color: #9fb6bb;
+    background: rgba(120,160,170,.1); border: 1px solid rgba(120,160,170,.25);
+    padding: 8px 16px; cursor: pointer; letter-spacing: .1em;
+  }
+  #loadout button.on { color: #dfeef1; border-color: #7fd0ea; background: rgba(127,208,234,.14);
+    box-shadow: 0 0 14px rgba(127,208,234,.18); }
+  #loadout button:hover { border-color: #9fb6bb; }
+  #loadout .go { margin-top: 8px; padding: 10px 30px; font-size: 12px; letter-spacing: .24em;
+    color: #0a0a0f; background: #7fd0ea; border: none; cursor: pointer; text-transform: uppercase; }
+  #loadout .go:hover { background: #a8e2f5; }
+  #loadout .note { color: #4d6a70; font-size: 10px; letter-spacing: .1em; }
 
   #banner {
     position: fixed; top: 38%; left: 50%; transform: translate(-50%, -50%);
@@ -33,6 +54,17 @@
     color: #cfe0e3; letter-spacing: .14em; text-transform: uppercase;
     pointer-events: none; user-select: none; text-shadow: 0 0 18px rgba(60,200,140,.35);
   }
+  .fbar {
+    position: fixed; left: 0; top: 0; z-index: 9; width: 90px; height: 9px;
+    background: rgba(120,160,170,.16); border-radius: 3px; overflow: hidden;
+    pointer-events: none; user-select: none; transition: opacity .3s;
+  }
+  .fbar .fill { height: 6px; width: 100%; border-radius: 3px 3px 0 0; }
+  .fbar .sfill { height: 3px; width: 100%; background: #8a9a9f; opacity: .55; }
+  #fbar0 .fill { background: #7fd0ea; }
+  #fbar1 .fill { background: #f09a5a; }
+  #loadout #stat { color: #6f8a90; font-size: 10px; letter-spacing: .1em; min-height: 14px; }
+
   #hint {
     position: fixed; left: 14px; bottom: 12px; z-index: 10;
     font: 11px/1.7 ui-monospace, Consolas, monospace; color: #4d6a70;
@@ -44,21 +76,42 @@
 </style>
 </head>
 <body>
+<canvas id="bg"></canvas>
+<canvas id="bodies"></canvas>
 <div id="hud">
   <div class="side left">
     <div class="name">you</div>
     <div class="bar"><div class="fill" id="mass0"></div></div>
-    <div class="pips" id="pips0"><div class="pip"></div><div class="pip"></div></div>
   </div>
   <div class="mid">fray</div>
   <div class="side right">
     <div class="name">foe</div>
     <div class="bar"><div class="fill" id="mass1"></div></div>
-    <div class="pips" id="pips1"><div class="pip"></div><div class="pip"></div></div>
   </div>
 </div>
 <div id="banner"></div>
-<div id="hint">A/D move - W jump - S duck - mouse aims the arm - hold LMB to grip, release mid-swing to throw - space kicks</div>
+<div class="fbar" id="fbar0"><div class="fill"></div><div class="sfill"></div></div>
+<div class="fbar" id="fbar1"><div class="fill"></div><div class="sfill"></div></div>
+<div id="loadout">
+  <div class="title">arm yourself</div>
+  <div class="group">
+    <span class="label">weapon</span>
+    <button data-g="weapon" data-v="blade" class="on">blade</button>
+    <button data-g="weapon" data-v="mace">mace</button>
+    <button data-g="weapon" data-v="spear">spear</button>
+    <button data-g="weapon" data-v="fists">fists</button>
+  </div>
+  <div id="stat"></div>
+  <div class="group">
+    <span class="label">shield</span>
+    <button data-g="shield" data-v="buckler" class="on">buckler</button>
+    <button data-g="shield" data-v="dual">dual wield</button>
+    <button data-g="shield" data-v="none">none</button>
+  </div>
+  <button class="go" id="go">fight</button>
+  <div class="note">LMB swings the weapon arm - RMB steers the shield - space kicks</div>
+</div>
+<div id="hint">A/D move - W jump - S duck - LMB drives weapon arm - RMB drives shield - space kicks</div>
 <a id="hub" href="index.html">home &rarr;</a>
 <script type="module" src="src/pages/fighter.js"></script>
 </body>

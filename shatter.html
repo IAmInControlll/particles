@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Particles - Shatter</title>
+<link rel="icon" href="data:,">
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #04060a; }
+  canvas.pf-gl { position: fixed; inset: 0; width: 100vw; height: 100vh; }
+
+  .hud { position: fixed; z-index: 10; color: #a7bccb; pointer-events: none;
+    font: 12px/1.6 ui-monospace, Consolas, monospace; text-shadow: 0 0 6px #000; }
+  #hud-tl { left: 14px; top: 10px; white-space: pre; }
+  #hud-tl .big { font-size: 22px; color: #dff0f7; letter-spacing: .08em; }
+  #hud-tl .dim { color: #5f7a85; }
+  #hud-tr { left: 50%; top: 12px; transform: translateX(-50%);
+    text-align: center; white-space: pre; font-size: 14px; color: #cfe6f2;
+    letter-spacing: .12em; }
+  #hud-msg { left: 50%; top: 24%; transform: translateX(-50%);
+    font-size: 17px; letter-spacing: .14em; color: #cfe6f2; opacity: 0;
+    transition: opacity .3s; text-transform: uppercase; }
+  #hud-keys { left: 50%; bottom: 10px; transform: translateX(-50%);
+    color: #4b6069; font-size: 11px; text-align: center; }
+
+  #over {
+    position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    z-index: 20; display: none; text-align: center;
+    color: #cfe0e8; font: 13px/1.9 ui-monospace, Consolas, monospace;
+    background: rgba(5, 11, 16, .84); border: 1px solid rgba(130, 170, 190, .25);
+    border-radius: 6px; padding: 18px 30px; backdrop-filter: blur(6px);
+  }
+  #over h2 { margin: 0 0 6px; font-size: 15px; letter-spacing: .22em; color: #f2b8a0; }
+  #over .big { font-size: 26px; color: #dff0f7; letter-spacing: .08em; }
+  #over .hint { color: #5f7a85; font-size: 11px; }
+  #over button {
+    margin-top: 12px; font: inherit; cursor: pointer;
+    color: #dff0f7; background: rgba(120, 170, 190, .12);
+    border: 1px solid rgba(150, 190, 210, .4); border-radius: 4px;
+    padding: 7px 26px; letter-spacing: .14em; text-transform: uppercase;
+  }
+  #over button:hover { background: rgba(150, 190, 210, .28); }
+
+  #hub { position: fixed; right: 12px; bottom: 10px; z-index: 10; color: #4b6069;
+    font: 11px/1.6 ui-monospace, Consolas, monospace; text-decoration: none; }
+  #hub:hover { color: #a7bccb; }
+</style>
+</head>
+<body>
+<div id="hud-tl" class="hud"></div>
+<div id="hud-tr" class="hud"></div>
+<div id="hud-msg" class="hud"></div>
+<div id="hud-keys" class="hud">tap to throw &middot; shatter glass before it reaches you &middot; crystals pay balls &middot; M mute</div>
+<div id="over"></div>
+<a id="hub" href="index.html">&larr; home</a>
+<script type="module" src="src/pages/shatter.js"></script>
+</body>
+</html>

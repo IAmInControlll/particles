@@ -19,7 +19,7 @@ export const PAL = {
 
 // uniform index into a point list: full coverage when len > n,
 // even duplication when len < n. Never use list[i % list.length].
-export const pick = (list, i, n) => list[(i * list.length / n) | 0];
+export const pick = (list, i, n, len = list.length) => list[(i * len / n) | 0];
 
 // rasterize text into design-space points (y up). Adaptive stride keeps
 // pts.length <= maxPoints so N particles cover the whole word.
@@ -74,7 +74,7 @@ export const CFG = {
   bg: [8, 12, 20],
   additive: true,
 
-  reserveEvery: 8,
+  reserveEvery: 0, // ambient drifters are opt-in per page
   leaderChance: 0.03,
   leaderBoost: 1.3,
   bigChance: 0.03,
@@ -106,6 +106,7 @@ export const CFG = {
   flowFreq2: 2.3,
   flowT3: 0.55,
   driftPull: 0.0012,
+  zReturn: 0.05,
 
   repelBase: 0.45,
   repelSpeedGain: 7,
@@ -116,6 +117,8 @@ export const CFG = {
   pullR: 2.4,
   pullAmp: 0.03,
   pullSwirl: 0.8,
+  pullDelay: 0,
+  touchPull: false,
   captureR: 0.32,
   orbRMin: 0.12,
   orbRVar: 0.85,

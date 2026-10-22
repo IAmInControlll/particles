@@ -51,8 +51,51 @@ checks. Verified: shots/mirror-{live,edges,fallback}.png.
 
 ## Open questions
 
-- Refresh rate vs jarring re-morphs. 4Hz is the starting guess; the
-  director's own transition stagger may smooth it for free.
-- Mirrored sampling (flip x) feels natural, like a mirror. Default flipped.
+- Refresh rate vs jarring re-morphs. Resolved: 150ms (~7Hz) after the
+  "too slow" report; per-sample deltas are small enough that springs
+  track without pulsing. `PF.reduce` still drops to 1Hz.
+- Mirrored sampling (flip x) feels natural, like a mirror. Default
+  flipped; `?flip=0` disables for debugging.
 - Whether to also show a faint live video inset for the "aha" association.
   Probably not; the swarm IS the video.
+
+## Fidelity notes (post-review tuning)
+
+- Segmentation is border-sampled background estimation (outer ~6% ring
+  mean + std), not frame-mean deviation - a large figure no longer emits
+  its own backdrop. Threshold is `THRESH + borderStd`, noise-adaptive.
+- `lum` scratch is temporally blended (0.5) then 3x3 box-blurred into a
+  second scratch; kernels read the blurred field. Kills speckle flicker.
+- Emission set is hysteretic: join at `|dev| > t`, leave only at
+  `|dev| < 0.6t` (same for EDGE_T edges). Boundary pixels can't flicker.
+- Particle->point mapping is SPATIAL, not ordinal: each particle owns a
+  fixed cell of the emit grid (`(i-K)*cells/M`), resolved per sample by a
+  two-pass chamfer transform to its nearest emitted slot. The old
+  proportional-list mapping retargeted the whole swarm on every count
+  wobble - that was the "pixels jumping" bug (probe: 6474 of 8370
+  particles >20px from home). After: half the swarm sits <5px, out-of-frame
+  strays 672 -> 14, and coverage is edge-dense.
+- Viewfinder: the first ~7% of scene indices trace the sampled rect's
+  perimeter in design space (mist edge, accent corners), `out[3]=1`
+  snapped so the border never drifts.
+- Refresh is 33ms (~30Hz, video cadence); camera requested at 640 and the
+  sample grid is 240 on the long side. Emit buffer is 4N so count is not
+  swarm-capped.
+- Segmentation is RGB distance from the border background (skin vs wall
+  separates at equal brightness); interior holes emit only when their own
+  color still deviates past 0.35t - "permissive inside contours, strict
+  outside". Background stations share-load over a ~5% window of the emit
+  list instead of piling on the single nearest cell.
+- RESTORED: "all pointer verbs work on the formed silhouette" - a
+  clicks-dead phase (`field.canPull = () => false`) was tried and
+  reverted per user direction; LMB pull/capture/fling are live again.
+  Silhouette particles are spring-homed, NOT snapped - snap teleports
+  before the force stage and would eat repel. The viewfinder stays
+  snapped + noWell so the frame never jitters.
+- All particles run `noFlock` - flocking smeared the silhouette and was
+  the per-frame hot cost. `spring: 0.07`, `heatGain: 0.5`, `twinkle:
+  0.05`, `pointScale: 0.005` for crispness.
+- Duplicated particles get sub-pixel dither (+-0.5px via h2/h3) so a
+  sparse point list reads dense instead of gridded.
+- Grid dims preserve camera aspect on the longest side (portrait cams
+  used to squash into 160x160).

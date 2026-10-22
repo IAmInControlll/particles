@@ -10,19 +10,29 @@ export function createVerlet({ gravity = 2400, iterations = 7, damp = 0.99 } = {
   let lastDt = 1 / 60;
 
   function point(x, y) {
-    const p = { x, y, px: x, py: y, pull: null, k: 0, gone: false };
+    const p = { x, y, px: x, py: y, pull: null, k: 0, gone: false, gs: 1, im: 1 };
     pts.push(p);
     return p;
   }
 
   function link(a, b, len, stiff = 1) {
     const c = {
+      type: 0,
       a,
       b,
       len: len ?? Math.hypot(a.x - b.x, a.y - b.y),
       stiff,
       broken: false,
     };
+    cons.push(c);
+    return c;
+  }
+
+  // a hinge clamps the angle between the axis (piv - mid(r1,r2)) and
+  // (jt - piv) to center +- band. Solved inside the iteration loop so
+  // it converges with the links instead of fighting them afterward.
+  function hinge(piv, r1, r2, jt, band, stiff = 0.5) {
+    const c = { type: 1, piv, r1, r2, jt, band, center: 0, stiff, broken: false };
     cons.push(c);
     return c;
   }
@@ -45,7 +55,7 @@ export function createVerlet({ gravity = 2400, iterations = 7, damp = 0.99 } = {
     for (const p of pts) {
       if (p.gone) continue;
       const nx = p.x + (p.x - p.px) * damp;
-      const ny = p.y + (p.y - p.py) * damp + g;
+      const ny = p.y + (p.y - p.py) * damp + g * p.gs;
       p.px = p.x;
       p.py = p.y;
       p.x = nx;
@@ -53,15 +63,42 @@ export function createVerlet({ gravity = 2400, iterations = 7, damp = 0.99 } = {
     }
     for (let it = 0; it < iterations; it++) {
       for (const c of cons) {
-        if (c.broken || c.a.gone || c.b.gone) continue;
+        if (c.broken) continue;
+        if (c.type === 1) {
+          const p = c.piv, j = c.jt;
+          if (p.gone || j.gone || p.free || j.free || c.r1.free || c.r2.free) continue;
+          const ux = p.x - (c.r1.x + c.r2.x) / 2;
+          const uy = p.y - (c.r1.y + c.r2.y) / 2;
+          const ul = Math.hypot(ux, uy) || 1e-4;
+          const vx = j.x - p.x, vy = j.y - p.y;
+          const vl = Math.hypot(vx, vy) || 1e-4;
+          const ang = Math.atan2((ux * vy - uy * vx) / (ul * vl), (ux * vx + uy * vy) / (ul * vl));
+          const d = ang - c.center;
+          const e = d > c.band ? d - c.band : d < -c.band ? d + c.band : 0;
+          if (!e) continue;
+          const rot = -e * c.stiff;
+          const cs = Math.cos(rot), sn = Math.sin(rot);
+          // shift px with the correction so the clamp bends the joint
+          // instead of pumping energy - an unshifted teleport reads as
+          // added velocity next step and whips a buoyant joint forever
+          const ox = j.x, oy = j.y;
+          j.x = p.x + vx * cs - vy * sn;
+          j.y = p.y + vx * sn + vy * cs;
+          j.px += j.x - ox;
+          j.py += j.y - oy;
+          continue;
+        }
+        if (c.a.gone || c.b.gone) continue;
         const dx = c.b.x - c.a.x;
         const dy = c.b.y - c.a.y;
         const d = Math.hypot(dx, dy) || 1e-4;
-        const diff = ((d - c.len) / d) * 0.5 * c.stiff;
-        c.a.x += dx * diff;
-        c.a.y += dy * diff;
-        c.b.x -= dx * diff;
-        c.b.y -= dy * diff;
+        const diff = ((d - c.len) / d) * c.stiff;
+        const ws = c.a.im + c.b.im || 1;
+        const ka = (c.a.im / ws) * diff, kb = (c.b.im / ws) * diff;
+        c.a.x += dx * ka;
+        c.a.y += dy * ka;
+        c.b.x -= dx * kb;
+        c.b.y -= dy * kb;
       }
       for (const p of pts) {
         if (p.gone) continue;
@@ -80,5 +117,5 @@ export function createVerlet({ gravity = 2400, iterations = 7, damp = 0.99 } = {
     }
   }
 
-  return { pts, cons, point, link, impulse, vel, step };
+  return { pts, cons, point, link, hinge, impulse, vel, step };
 }

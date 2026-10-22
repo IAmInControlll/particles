@@ -73,3 +73,44 @@ no auth, toy-grade. `serve.js` untouched.
   stream at ~30Hz with no extra lerp (the engine eases well velocity).
 - Peer tint is derived from the relay-assigned id (`TINTS[id % 4]`), so
   "you" look the same on both ends with no extra messages.
+
+## Phase 2 - public relay + voice (planned)
+
+Goal: telepresence works over the internet, not just LAN/localhost -
+and peers can hear each other.
+
+### Public relay
+
+- [ ] Host `tools/relay.js` on a public always-on free tier with TLS
+  (fly.io / Render / Railway, or a Cloudflare Worker port). The relay is
+  one dep-free file; the host just runs `node tools/relay.js`. `wss://`
+  comes free with host-managed certs.
+- [ ] `net.js` scheme fix: accept a full `wss://host` `?relay=` param and
+  auto-pick `wss:` when `location.protocol === "https:"` (https pages
+  refuse `ws://` as mixed content). Bake the deployed relay URL in as
+  the default so no param is needed.
+- [ ] No relay-side changes otherwise: rooms, roster, verbatim text
+  relay already suffice. Rooms are in-memory only; a restart makes every
+  client reconnect in ~2s with zero data loss (silhouettes refresh at
+  4Hz anyway).
+
+### Voice (WebRTC audio over relay signaling)
+
+- [ ] The relay doubles as the signaling channel for free: add `sdp`
+  (offer/answer) and `ice` message types routed by `onMsg`, addressed
+  `f`/`to` by relay id. A few KB of JSON per handshake; audio never
+  crosses the relay.
+- [ ] `peer.js`: one `RTCPeerConnection` per peer pair; lower relay id
+  initiates. Mic via `getUserMedia({audio:true})`, track attached once.
+- [ ] STUN only (`stun:stun.l.google.com`). TURN is deferred - peers
+  behind symmetric NATs degrade to silhouettes-only, same pattern as a
+  denied camera.
+- [ ] UX: mic button in the status bar, default muted (strangers should
+  not auto-play). Mute state rides the legend dot.
+- [ ] Mesh is N^2 connections - cap voice to ~6 peers, mute beyond.
+- [ ] Headless check: two Playwright pages with fake audio devices can
+  complete a real offer/answer on localhost (iceState connected).
+
+Both phases are deploy-time/client-side only - the engine and every
+other page stay untouched, and telepresence keeps its graceful offline
+behavior when no relay is reachable.

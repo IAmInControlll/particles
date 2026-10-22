@@ -14,26 +14,54 @@ const ORANGE = [1.0, 0.45, 0.15];
 const GOLD = [1.0, 0.75, 0.25];
 const BLACK = [0.08, 0.08, 0.1];
 
-// koi archetypes cycled per fish: (station t, h2, h3) -> rgb
+// patch membership of station t (bent by lateral l so blotches aren't
+// ruler-straight bands) against the fish's rolled [center, width] pairs
+const patchK = (t, l, pat) => {
+  const tt = t + l * 0.16;
+  let m = 0;
+  for (let i = 0; i < pat.length; i += 2) {
+    const d = Math.abs(tt - pat[i]), w = pat[i + 1] * 0.5;
+    if (d < w) { const k = 1 - d / w; if (k > m) m = k; }
+  }
+  return m;
+};
+
+// koi archetypes: (station t, lateral l, h2, h3, pat) -> rgb. pat is two
+// [center, width] blotches along the spine; h2 raggeds the patch edge
 const KINDS = [
-  (t, h2) => (Math.sin(t * 7.3 + h2 * 2.4) > 0.15 && h2 > 0.3 ? ORANGE : WHITE), // kohaku patches
+  (t, l, h2, h3, pat) => (patchK(t, l, pat) > 0.3 + (h2 - 0.5) * 0.35 ? ORANGE : WHITE), // kohaku
   () => GOLD, // ogon
-  (t, h2, h3) => (h3 > 0.85 ? BLACK : WHITE), // bekko speckle
-  (t, h2) => (h2 > 0.78 ? GOLD : ORANGE), // orange
+  (t, l, h2, h3, pat) => (patchK(t, l, pat) > 0.35 && h3 > 0.45 ? BLACK : WHITE), // bekko: spots inside blotches
+  (t, l, h2, h3, pat) => {
+    // showa: black ground, first blotch orange, second white
+    const tt = t + l * 0.16;
+    if (Math.abs(tt - pat[0]) < pat[1] * 0.5) return ORANGE;
+    if (Math.abs(tt - pat[2]) < pat[3] * 0.5) return WHITE;
+    return BLACK;
+  },
 ];
 
 export function makeFish(field, lo, hi, kind) {
   const f = {
-    lo, hi, kind: kind % KINDS.length,
+    lo, hi, kind: kind == null ? (PF.rnd() * KINDS.length) | 0 : kind % KINDS.length,
+    active: false,
     x: 0, y: 0, vx: 0, vy: 0, heading: 0, speed: 0,
     owned: new Int32Array(0), n: 0, placed: false,
+    // per-fish look variance: body/length scale and a palette channel jitter
+    sizeMul: 0.8 + PF.rnd() * 0.5,
+    lenMul: 0.85 + PF.rnd() * 0.35,
+    colJit: [0.88 + 0.24 * PF.rnd(), 0.88 + 0.24 * PF.rnd(), 0.88 + 0.24 * PF.rnd()],
+    // two blotch [center, width] pairs along the spine; the patterns use
+    // them differently but every fish rolls its own markings
+    pat: [0.1 + PF.rnd() * 0.4, 0.14 + PF.rnd() * 0.2, 0.55 + PF.rnd() * 0.35, 0.14 + PF.rnd() * 0.2],
+    hunger: 0.25 + PF.rnd() * 0.95, // appetite: how likely it bothers with food
     S, segLen: 0,
     sx: new Float32Array(S), sy: new Float32Array(S), lag: new Float32Array(S),
     bodyT: null, bodyL: null, bodyW: null, bodyZ: null, baseCol: null,
     z: -2, zBase: -2, zTarget: -2,
     size: 0, cruise: 0, maxSpd: 0, wagAmp: 0,
     wagPhase: PF.rnd() * 6.283, wagFreq: 5.5 + PF.rnd() * 3,
-    flash: 0, excitement: 0, target: null,
+    flash: 0, excitement: 0, target: null, curious: false,
     turnW1: 0.35 + PF.rnd() * 0.5, turnW2: 0.2 + PF.rnd() * 0.45,
     turnP1: PF.rnd() * 6.283, turnP2: PF.rnd() * 6.283,
   };
@@ -45,8 +73,8 @@ export function makeFish(field, lo, hi, kind) {
 // Unit-scaled quantities + member arrays. Reserve-filtered owned list is
 // rebuilt here so a resize can rebake without a second boot path.
 export function layoutFish(f, field, unit) {
-  f.size = 0.17 * unit;
-  f.segLen = 0.125 * unit;
+  f.size = 0.17 * unit * f.sizeMul;
+  f.segLen = 0.125 * unit * f.lenMul;
   f.wagAmp = 0.05 * unit;
   f.maxSpd = (0.5 + 0.4 * field.h2(f.lo)) * unit;
   f.cruise = 0.62 * f.maxSpd;
@@ -62,23 +90,40 @@ export function layoutFish(f, field, unit) {
     const colFn = KINDS[f.kind];
     for (let j = 0, p = f.lo; p < f.hi; p++) {
       if (field.reserve[p]) continue;
-      // ~30% of members crowd the head station, rest fill the body
-      const t = PF.rnd() < 0.3 ? PF.rnd() * 0.2 : PF.rnd();
+      // ~28% of members crowd the head station, ~8% ride the pectoral
+      // fins past the flank, rest fill the body
+      const roll = PF.rnd();
+      let t, l;
+      if (roll < 0.08) {
+        t = 0.24 + PF.rnd() * 0.16;
+        l = (PF.rnd() < 0.5 ? -1 : 1) * (1.05 + PF.rnd() * 0.45);
+      } else {
+        t = roll < 0.38 ? PF.rnd() * 0.2 : PF.rnd();
+        l = PF.rnd() - PF.rnd(); // triangular: disc fill, not rim
+      }
       f.bodyT[j] = t;
-      const l = PF.rnd() - PF.rnd(); // triangular: disc fill, not rim
       f.bodyL[j] = l;
       f.bodyZ[j] = (field.h3(p) - 0.5) * 0.3;
-      const c = colFn(t, field.h2(p), field.h3(p));
-      f.baseCol[j * 3] = c[0];
-      f.baseCol[j * 3 + 1] = c[1];
-      f.baseCol[j * 3 + 2] = c[2];
+      let c = colFn(t, l, field.h2(p), field.h3(p), f.pat);
+      if (t < 0.1 && (l > 0.6 || l < -0.6)) c = BLACK; // eyes
+      const jt = f.colJit;
+      f.baseCol[j * 3] = c[0] * jt[0];
+      f.baseCol[j * 3 + 1] = c[1] * jt[1];
+      f.baseCol[j * 3 + 2] = c[2] * jt[2];
       f.owned[j] = p;
       j++;
     }
     f.n = n;
   }
-  for (let j = 0; j < n; j++)
-    f.bodyW[j] = f.size * Math.sin(Math.PI * Math.pow(f.bodyT[j], 0.8));
+  for (let j = 0; j < n; j++) {
+    const t = f.bodyT[j];
+    // koi silhouette: broad mid-body, pinches to a caudal stem past
+    // t~0.82, then fans back out into a tail fluke
+    const wBody = Math.sin(Math.PI * Math.pow(t, 0.8));
+    const stem = t > 0.82 ? Math.max(0.22, 1 - ((t - 0.82) / 0.18) * 0.78) : 1;
+    const fluke = t > 0.84 ? Math.pow((t - 0.84) / 0.16, 1.5) * 0.5 : 0;
+    f.bodyW[j] = f.size * (wBody * stem * 0.9 + fluke);
+  }
 }
 
 export function initSpine(f) {

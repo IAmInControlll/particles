@@ -10,7 +10,7 @@ const TINT = [1.0, 0.82, 0.5];
 
 export function makePellets(field, spans) {
   const list = spans.map(([lo, hi], k) => ({
-    lo, hi, x: 0, y: 0, born: -1, amount: 0,
+    lo, hi, x: 0, y: 0, born: -1, amount: 0, claim: null,
     active: false, pending: false, px: 0, py: 0,
     owned: new Int32Array(0), off: new Float32Array(0), seed: k * 1.7,
   }));
@@ -49,10 +49,11 @@ export function makePellets(field, spans) {
     p.py = y;
   };
 
-  const nearest = (x, y, r2Max) => {
+  // nearest live pellet nobody has claimed - one pellet feeds one fish
+  const freeNearest = (x, y, r2Max) => {
     let best = null, bd = r2Max;
     for (const p of list) {
-      if (!p.active) continue;
+      if (!p.active || p.claim) continue;
       const dx = p.x - x, dy = p.y - y, d2 = dx * dx + dy * dy;
       if (d2 < bd) { bd = d2; best = p; }
     }
@@ -60,12 +61,13 @@ export function makePellets(field, spans) {
   };
 
   const step = (T, dt, ctx) => {
-    const { home, hcol, homed, snap } = field;
+    const { home, hcol, homed, snap, size } = field;
     for (const p of list) {
       const own = p.owned;
       if (p.pending) {
         p.pending = false;
         p.active = true;
+        p.claim = null;
         p.x = p.px;
         p.y = p.py;
         p.amount = 1;
@@ -79,11 +81,13 @@ export function makePellets(field, spans) {
           hcol[i] = TINT[0];
           hcol[i + 1] = TINT[1];
           hcol[i + 2] = TINT[2];
+          size[q] = 1.25; // chunkier than water speckle; tintWater re-clamps on retire
           snap[q] = 1;
         }
       } else if (p.active) {
         if (p.amount <= 0) {
           p.active = false;
+          p.claim = null;
           for (let j = 0; j < own.length; j++) {
             homed[own[j]] = 0;
             ctx.tintWater(own[j]); // dissolves back into pond
@@ -101,5 +105,5 @@ export function makePellets(field, spans) {
     }
   };
 
-  return { list, layout, drop, nearest, step };
+  return { list, layout, drop, freeNearest, step };
 }

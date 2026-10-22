@@ -3,7 +3,14 @@
 // out. Extension point: a new steering behavior is one table row.
 const EAT_R = 0.35; // xu
 const DRAIN = 0.34; // pellet amount /s while eaten
-const FLEE_R = 1.6; // xu, ~0.8 * CFG.pullR(2.0)
+const SHY_R = 1.8; // xu
+const SHY_SPD = 3; // xu/s cursor speed that maxes the scare
+const POLITE_R = 1.1; // xu ring where a curious fish parks
+const CURIOUS_R = 4; // xu
+const CURIOUS_MAX = 2; // fish allowed to watch at once
+const CURIOUS_KEEP = 1.4; // hysteresis: incumbents survive to 1.4 * CURIOUS_R
+const STARTLE_R = 3; // xu
+const STARTLE_T = 0.35; // s after a splash that fish bolt
 const PAD_MARGIN = 0.35; // xu
 const SEP_R = 1.1; // xu
 const SEEK_GAIN = 4; // /s, pursuit stiffness toward desired velocity
@@ -32,13 +39,39 @@ function seek(f, c, o) {
   o.y += (vy - f.vy) * SEEK_GAIN;
 }
 
-function flee(f, c, o) {
+function shy(f, c, o) {
   const dx = f.x - c.mx, dy = f.y - c.my;
-  const r = FLEE_R * c.unit;
+  const r = SHY_R * c.unit;
   const d2 = dx * dx + dy * dy;
-  if (d2 > r * r) return;
-  const d = Math.sqrt(d2) + 1e-4;
-  const str = (1 - d / r) * 6 * c.unit;
+  if (d2 > r * r || d2 < 1e-4) return;
+  const d = Math.sqrt(d2), k = 1 - d / r;
+  // a fast cursor scares from further out than a slow one
+  const str = k * k * (2.0 + 3.0 * Math.min(c.mSpeed, SHY_SPD)) * c.unit;
+  o.x += (dx / d) * str;
+  o.y += (dy / d) * str;
+  f.excitement = Math.max(f.excitement, k);
+}
+
+function curious(f, c, o) {
+  const dx = c.mx - f.x, dy = c.my - f.y;
+  const d2 = dx * dx + dy * dy;
+  if (d2 < 1) return;
+  const d = Math.sqrt(d2), u = c.unit;
+  // capped approach; desired speed fades to zero at the polite ring so the
+  // fish parks and watches instead of nosing the cursor
+  const over = (d - POLITE_R * u) / u;
+  const sp = 0.5 * f.maxSpd * Math.min(1, Math.max(0, over));
+  o.x += ((dx / d) * sp - f.vx) * SEEK_GAIN;
+  o.y += ((dy / d) * sp - f.vy) * SEEK_GAIN;
+}
+
+function startle(f, c, o) {
+  const dx = f.x - c.splash.x, dy = f.y - c.splash.y;
+  const r = STARTLE_R * c.unit;
+  const d2 = dx * dx + dy * dy;
+  if (d2 > r * r || d2 < 1e-4) return;
+  const d = Math.sqrt(d2);
+  const str = (1 - d / r) * 9 * c.unit;
   o.x += (dx / d) * str;
   o.y += (dy / d) * str;
   f.excitement = 1;
@@ -70,7 +103,7 @@ function separate(f, c, o) {
   const r = SEP_R * c.unit, r2 = r * r;
   for (let i = 0; i < c.fishes.length; i++) {
     const g = c.fishes[i];
-    if (g === f) continue;
+    if (!g.active || g === f) continue;
     const dx = f.x - g.x, dy = f.y - g.y;
     const d2 = dx * dx + dy * dy;
     if (d2 > r2 || d2 < 1e-6) continue;
@@ -102,13 +135,49 @@ function center(f, c, o) {
 }
 
 export const BEHAVIORS = [
-  { name: "seek", w: 2.2, on: (f) => !!f.target, fn: seek },
-  { name: "flee", w: 3.0, on: (f, c) => c.armed, fn: flee },
+  { name: "startle", w: 4.0, on: (f, c) => c.T - c.splash.t < STARTLE_T, fn: startle },
+  { name: "shy", w: 3.2, on: (f, c) => c.mx > -9e3, fn: shy },
   { name: "avoid", w: 2.6, fn: avoid },
+  { name: "seek", w: 2.2, on: (f) => !!f.target, fn: seek },
+  { name: "curious", w: 1.8, on: (f) => f.curious, fn: curious },
   { name: "separate", w: 1.4, fn: separate },
   { name: "wander", w: 0.8, fn: wander },
   { name: "center", w: 0.5, fn: center },
 ];
+
+// Once per frame. A still cursor over calm water draws the two nearest idle
+// fish in to watch; any motion, press, or splash clears the flag.
+export function pickCurious(ctx) {
+  const fishes = ctx.fishes;
+  if (ctx.calmT < 0.8) {
+    for (let i = 0; i < fishes.length; i++) fishes[i].curious = false;
+    return;
+  }
+  const mx = ctx.mx, my = ctx.my;
+  const r2 = CURIOUS_R * CURIOUS_R * ctx.unit * ctx.unit;
+  const keep2 = CURIOUS_KEEP * CURIOUS_KEEP * r2;
+  let n = 0;
+  for (let i = 0; i < fishes.length; i++) {
+    const f = fishes[i];
+    if (!f.active || !f.curious) continue;
+    const dx = f.x - mx, dy = f.y - my;
+    if (dx * dx + dy * dy > keep2) f.curious = false;
+    else n++;
+  }
+  while (n < CURIOUS_MAX) {
+    let best = null, bd = r2;
+    for (let i = 0; i < fishes.length; i++) {
+      const f = fishes[i];
+      if (!f.active || f.curious || f.target) continue; // a feeding fish ignores you
+      const dx = f.x - mx, dy = f.y - my;
+      const d2 = dx * dx + dy * dy;
+      if (d2 < bd) { bd = d2; best = f; }
+    }
+    if (!best) return;
+    best.curious = true;
+    n++;
+  }
+}
 
 const tmp = { x: 0, y: 0 }; // per-row scratch, reused every call
 export function evalSteer(f, ctx, out) {

@@ -34,3 +34,12 @@
   once per retry from the browser's network layer. Not a page error and
   not suppressible from JS; the check runs the relay so it stays clean.
 - `?relay=host:port` URL param overrides the default `hostname:8322`.
+
+## Planned: public relay + voice (phase 2, see plans/telepresence.md)
+- Owner decision: keep telepresence, deploy the relay publicly for
+  internet play (LAN/localhost only today). Host TBD: fly.io / Render /
+  Railway run relay.js as-is with free wss; a Cloudflare Worker port is
+  the set-and-forget option. net.js needs a wss scheme fix + baked-in
+  default relay URL first.
+- Voice planned on top: WebRTC audio P2P with the relay as signaling
+  (sdp/ice message types), STUN only, mic default-muted, ~6 peer cap.

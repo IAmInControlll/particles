@@ -38,6 +38,18 @@ anchor each frame, same pattern as the koi plan's fish. Cockpit gets an
 inverse-velocity sway offset so it feels weighted; on damage it jitters
 and sheds particles that fall as fx then recycle.
 
+Implemented shares diverge from the table: cockpit 10% (shield motes,
+reticle, compass arrow, plus the `exterior.js` hull silhouette when the
+chase view is picked - per user direction the interior hull is entirely
+the `deck.js` canvas painted from `frames.js`, with pane cutouts and a
+cull mask keeping world particles off the plates), entities 15%,
+course 21%, planets 11%, stars 32%, fx ~11%. World layers clamp or pin
+home.z (stars baked 0.55-1.6, gates -4, planets -3, entities -5, dust
+1.1) because project() maps real range to depths that crush the
+shader's sprite scale to sub-pixel. Star palette is white-only
+(ink/dim over two depth shells); cockpit is a warm neutral so it never
+blends with the sky-blue gates.
+
 ## Data shapes
 
 ```js
@@ -99,6 +111,10 @@ aim later.
 7. [DONE] Enemy ship bodies + AI state machine + death scatter.
 8. [DONE] Pickups + magnetize + boost/health/shield effects.
 9. [DONE] Balance pass, mobile N tuning, hub card flip.
+10. [DONE] Pickup labels (BST/HUL/SHD tags beside live rings) + pick-time
+  view choice: cockpit or chase (third-person eye behind the hull,
+  `exterior.js` particle silhouette, instruments repacked to a HUD strip,
+  cull skipped). Persisted `space.view`, `?view=` selects, V toggles.
 
 ## Open questions
 

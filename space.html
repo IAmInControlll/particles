@@ -6,15 +6,15 @@
 <title>Particles - Voidrunner</title>
 <link rel="icon" href="data:,">
 <style>
-  html, body { margin: 0; height: 100%; overflow: hidden; background: #05070e; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #030409; }
   canvas.pf-gl { position: fixed; inset: 0; width: 100vw; height: 100vh; }
+  #deck { position: fixed; inset: 0; width: 100vw; height: 100vh;
+    z-index: 5; pointer-events: none; }
 
   .hud { position: fixed; z-index: 10; color: #9fb6bb; pointer-events: none;
     font: 12px/1.6 ui-monospace, Consolas, monospace; text-shadow: 0 0 6px #000; }
   #hud-tl { left: 12px; top: 10px; white-space: pre; }
-  #hud-tr { right: 12px; top: 10px; text-align: right; white-space: pre; }
-  #hud-bl { left: 12px; bottom: 10px; white-space: pre; }
-  #hud-msg { left: 50%; top: 26%; transform: translateX(-50%);
+  #hud-msg { display: none; left: 50%; top: 26%; transform: translateX(-50%);
     font-size: 17px; letter-spacing: .14em; color: #bfe8d8; opacity: 0;
     transition: opacity .3s; text-transform: uppercase; }
   #hud-keys { left: 50%; bottom: 10px; transform: translateX(-50%);
@@ -35,18 +35,43 @@
   }
   #over .hint { color: #5f7a80; font-size: 11px; }
 
+  #pick {
+    position: fixed; left: 50%; top: 58%; transform: translate(-50%, -50%);
+    z-index: 20; display: none; text-align: center;
+    color: #cfe0e3; font: 13px/1.9 ui-monospace, Consolas, monospace;
+    background: rgba(6, 14, 20, .72); border: 1px solid rgba(120, 160, 170, .25);
+    border-radius: 6px; padding: 16px 28px; backdrop-filter: blur(5px);
+  }
+  #pick h2 { margin: 0 0 4px; font-size: 15px; letter-spacing: .2em; color: #bfe8d8; }
+  #pick .ship { margin-top: 8px; color: #9fb6bb; cursor: pointer; }
+  #pick .ship:hover, #pick .ship.cur { color: #e8f4ee; }
+  #pick .ship.cur { text-shadow: 0 0 8px rgba(140, 220, 190, .4); }
+  #pick .ship span { color: #5f7a80; font-size: 11px; }
+  #pick .ship.cur span { color: #7a9aa0; }
+  #pick .views { margin-top: 10px; color: #5f7a80; font-size: 11px; }
+  #pick .vopt { color: #9fb6bb; cursor: pointer; }
+  #pick .vopt:hover, #pick .vopt.cur { color: #e8f4ee; }
+  #pick .vopt.cur { text-shadow: 0 0 8px rgba(140, 220, 190, .4); }
+  #pick button {
+    margin-top: 12px; background: #0c2127; color: #bfe8d8;
+    border: 1px solid rgba(120,160,170,.35); border-radius: 3px;
+    padding: 5px 22px; font: inherit; letter-spacing: .14em; cursor: pointer;
+  }
+  #pick button:hover { border-color: #bfe8d8; }
+  #pick .hint { margin-top: 10px; color: #5f7a80; font-size: 11px; }
+
   #hub { position: fixed; right: 12px; bottom: 10px; z-index: 10; color: #4d6a70;
     font: 11px/1.6 ui-monospace, Consolas, monospace; text-decoration: none; }
   #hub:hover { color: #9fb6bb; }
 </style>
 </head>
 <body>
+<canvas id="deck"></canvas>
 <div id="hud-tl" class="hud"></div>
-<div id="hud-tr" class="hud"></div>
-<div id="hud-bl" class="hud"></div>
 <div id="hud-msg" class="hud"></div>
-<div id="hud-keys" class="hud">W/S thrust &middot; A/D strafe &middot; R/F lift &middot; arrows steer &middot; Q/E roll &middot; shift boost &middot; ctrl drift &middot; space fire &middot; T track</div>
+<div id="hud-keys" class="hud">W/S thrust &middot; A/D strafe &middot; R/F lift &middot; arrows steer &middot; Q/E roll &middot; shift boost &middot; ctrl drift &middot; space fire &middot; T track &middot; M mute</div>
 <div id="over"></div>
+<div id="pick"></div>
 <a id="hub" href="index.html">&larr; home</a>
 <script type="module" src="src/pages/space.js"></script>
 </body>

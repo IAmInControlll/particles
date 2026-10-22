@@ -20,6 +20,10 @@ import { makeScenes } from "../scenes/scenes.js";
     cxOff: 0,
     cyOff: 0,
     excludePanel: false,
+    noPointer: false,
+    wellShare: 0,
+    hoverOn: true,
+    pressOn: true,
     paused: false,
     driftX: innerWidth * 0.7,
     driftY: innerHeight * 0.5,
@@ -104,6 +108,13 @@ import { makeScenes } from "../scenes/scenes.js";
     }
   }
 
+  // deterministic random subset of particles ignores every pointer well
+  function applyNoWell() {
+    if (!field) return;
+    for (let p = 0; p < field.N; p++)
+      field.noWell[p] = field.h1(p) < ui.wellShare ? 1 : 0;
+  }
+
   function boot() {
     PF.reseed(ui.seed);
     const oldName = activeName;
@@ -116,9 +127,11 @@ import { makeScenes } from "../scenes/scenes.js";
       stats.textContent = "WebGL unavailable";
       return;
     }
-    field.canPull = (e) => !e.target.closest("#panel");
+    field.canPull = (e) => ui.pressOn && !e.target.closest("#panel");
     field.mouseZone = () =>
+      !ui.noPointer &&
       !(field.mouse.over && field.mouse.over.closest && field.mouse.over.closest("#panel"));
+    applyNoWell();
 
     sceneFns = makeScenes(field);
     dir = PF.createDirector(field, { dur: CFG.directorDur });
@@ -315,10 +328,19 @@ import { makeScenes } from "../scenes/scenes.js";
     slider(sDrift, "drift y", ui, "driftY", 0, innerHeight, 5);
 
     const sMouse = section("Mouse");
+    check(sMouse, "cursor off", ui, "noPointer");
+    slider(sMouse, "immune share", ui, "wellShare", 0, 1, 0.01, { onchange: applyNoWell });
+    const hoverChk = check(sMouse, "hover repel", ui, "hoverOn");
+    check(sMouse, "press pull", ui, "pressOn");
     slider(sMouse, "repel R xu", CFG, "repelBase", 0.05, 2, 0.05);
     slider(sMouse, "speed gain", CFG, "repelSpeedGain", 0, 20, 0.5);
     slider(sMouse, "speed max", CFG, "repelSpeedMax", 0.2, 4, 0.1);
-    slider(sMouse, "repel amp", CFG, "repelAmp", 0, 0.4, 0.005);
+    const repelAmpInp = slider(sMouse, "repel amp", CFG, "repelAmp", 0, 0.4, 0.005);
+    hoverChk.onchange = () => {
+      ui.hoverOn = hoverChk.checked;
+      repelAmpInp.disabled = !hoverChk.checked; // slider can't fight the switch
+      CFG.repelAmp = hoverChk.checked ? +repelAmpInp.value : 0;
+    };
     slider(sMouse, "repel swirl", CFG, "repelSwirl", -3, 3, 0.1);
     slider(sMouse, "repel z", CFG, "repelZ", 0, 3, 0.05);
     slider(sMouse, "pull R xu", CFG, "pullR", 0.5, 6, 0.1);
@@ -339,7 +361,7 @@ import { makeScenes } from "../scenes/scenes.js";
     el("div", { className: "hint", textContent: "particles get pushed out of the panel rect" }, sEx);
 
     const sInit = section("Init (applies on rebuild)");
-    slider(sInit, "reserve every", CFG, "reserveEvery", 2, 30, 1);
+    slider(sInit, "reserve every", CFG, "reserveEvery", 0, 30, 1);
     slider(sInit, "leader chance", CFG, "leaderChance", 0, 0.2, 0.005);
     slider(sInit, "leader boost", CFG, "leaderBoost", 0, 4, 0.1);
     slider(sInit, "big chance", CFG, "bigChance", 0, 0.2, 0.005);
