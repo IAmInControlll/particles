@@ -1013,6 +1013,101 @@ SCEN["combat-lead-chase"] = [
   ["shot", "combat-chase-on"],
 ];
 
+// world2-*: celestial sphere + carrier. W2_SETS names the star-layer slices
+// (the pre-sphere build exposed only one tunnel set, probed as "all").
+const W2_SETS = `(() => { const st = __space.course.stars, N = __pf.N;
+  return st.far ? { far: st.far, near: st.near } : { all: { lo: (N * 0.70) | 0, n: st.n } }; })()`;
+const W2_POS = `(() => { const f = __pf, o = {};
+  for (const [k, r] of Object.entries(${W2_SETS})) {
+    const a = new Float32Array(r.n * 2);
+    for (let i = 0; i < r.n; i++) {
+      const p = r.lo + i, j = p * 3, x = f.home[j], y = f.home[j + 1];
+      const on = f.homed[p] && f.size[p] > 0 && x >= 0 && y >= 0 && x < innerWidth && y < innerHeight;
+      a[i * 2] = on ? x : NaN; a[i * 2 + 1] = y;
+    }
+    o[k] = a;
+  }
+  return o; })()`;
+const W2_VIS = `(() => { const o = {};
+  for (const [k, a] of Object.entries(${W2_POS})) {
+    let n = 0; for (let i = 0; i < a.length; i += 2) if (a[i] === a[i]) n++;
+    o[k] = n;
+  }
+  return o; })()`;
+const W2_CAM = "(({ yaw, pitch, roll, f, cx, cy, ox, oy }) => ({ yaw, pitch, roll, f, cx, cy, ox, oy }))(__space.cam)";
+const W2_DRIFT0 = `window.__w2 = { t: performance.now(), pos: ${W2_POS}, cam: ${W2_CAM} }; 1`;
+const W2_DRIFT = `(() => { const now = ${W2_POS}, dt = (performance.now() - __w2.t) / 1000, c1 = ${W2_CAM}, dc = {};
+  for (const k in c1) dc[k] = +(c1[k] - __w2.cam[k]).toFixed(4);
+  const o = { dt: +dt.toFixed(2), dCam: dc };
+  for (const k in now) {
+    const a = __w2.pos[k], b = now[k];
+    let n = 0, s = 0;
+    for (let i = 0; i < a.length; i += 2) {
+      if (a[i] !== a[i] || b[i] !== b[i]) continue;
+      n++; s += Math.hypot(b[i] - a[i], b[i + 1] - a[i + 1]);
+    }
+    o[k] = { pairs: n, meanPxPerS: n ? +(s / n / dt).toFixed(1) : null };
+  }
+  return o; })()`;
+SCEN["world2-stars"] = [
+  ["reload"], [1500],
+  ["eval", `(() => { const s = __space, c = s.cam;
+    s.auto = false; c.yaw = 0; c.pitch = 0; c.roll = 0; c.yv = c.pv = c.rv = 0;
+    s.keys.KeyW = true; s.keys.ShiftLeft = true;
+    window.__w2fill = setInterval(() => { c.boost = 1; }, 50); // full burn, steady FOV
+    return 1; })()`],
+  [3200],
+  ["probe", "speedK", "+__space.cam.speedK.toFixed(2)"],
+  ["probe", "visFly", W2_VIS],
+  ["eval", W2_DRIFT0], ["shot", "world2-fly-a"], [1000],
+  ["probe", "driftStraight", W2_DRIFT], ["shot", "world2-fly-b"],
+  ["eval", "__space.keys.ArrowLeft = true"], [500],
+  ["eval", W2_DRIFT0], [400],
+  ["probe", "driftTurn", W2_DRIFT], ["shot", "world2-turn"],
+  ["eval", `(() => { const s = __space, c = s.cam; s.keys.ArrowLeft = false; s.keys.KeyW = false; s.keys.ShiftLeft = false; clearInterval(__w2fill);
+    c.vx = c.vy = c.vz = 0; c.yv = c.pv = c.rv = 0; c.yaw = 0; c.pitch = 0; return 1; })()`],
+  [1200],
+  ["probe", "visRest", W2_VIS], ["shot", "world2-rest"],
+  ["eval", "__space.cam.yaw = Math.PI; __space.cam.update(0.016, __space.keys); 1"], [700],
+  ["probe", "visBack", W2_VIS],
+  ["eval", "__space.cam.yaw = Math.PI / 2; __space.cam.update(0.016, __space.keys); 1"], [700],
+  ["probe", "visLeft", W2_VIS],
+  ["probe", "budget", `(() => { const c = __space.course, st = c.stars, N = __pf.N;
+    return { N, far: st.far.n, near: st.near.n, glint: st.glint.n, carrier: c.landmark.n,
+      planet: c.planets.map(p => p.n), bolts: __space.ent.bolts.length }; })()`],
+];
+// carrier close-up: pin her broadside (+z flank to the eye) at range d and
+// measure, per role, drawn sprite diameter vs nearest-neighbour spacing on
+// screen - ratio >= 1 means neighbours visibly overlap into a surface
+const W2_PIN = (d) => `(() => { const s = __space, c = s.cam, lm = s.course.landmark;
+  s.run.storyDone = true; // no dock cutscene: keep the cockpit eye
+  s.auto = false; s.keys.KeyW = false; c.vx = c.vy = c.vz = 0; c.yv = c.pv = c.rv = 0;
+  lm.x = c.x + c.fwd[0] * ${d}; lm.y = c.y + c.fwd[1] * ${d}; lm.z = c.z + c.fwd[2] * ${d};
+  for (let i = 0; i < 3; i++) { lm.D[i] = c.right[i]; lm.U[i] = c.up[i]; lm.V[i] = -c.fwd[i]; }
+  lm.spin = -0.25; return 1; })()`;
+const W2_MERGE = `(() => { const f = __pf, lm = __space.course.landmark, px = 0.006 * Math.min(innerHeight, 1100) * 9 / 7.8;
+  const out = { vis: 0 };
+  for (const [name, role] of [["plate", 0], ["edge", 1]]) {
+    const pts = [];
+    for (let i = 0; i < lm.n; i++) {
+      const p = lm.lo + i, j = p * 3;
+      if (lm.kind[i] !== role || f.home[j] < -4e3 || !f.size[p]) continue;
+      pts.push([f.home[j], f.home[j + 1], f.size[p] * px]);
+    }
+    const nn = pts.map(a => { let m = 1e9; for (const b of pts) if (b !== a) m = Math.min(m, Math.hypot(a[0] - b[0], a[1] - b[1])); return m; }).sort((a, b) => a - b);
+    const dia = pts.map(a => a[2]).sort((a, b) => a - b), med = (v) => v.length ? +v[v.length >> 1].toFixed(1) : null;
+    // the soft disc reads over about half its drawn diameter
+    out[name] = { n: pts.length, diaPx: med(dia), nnPx: med(nn), overlap: pts.length ? +(0.5 * med(dia) / med(nn)).toFixed(2) : null };
+  }
+  for (let i = 0; i < lm.n; i++) if (f.home[(lm.lo + i) * 3] > -4e3) out.vis++;
+  return out; })()`;
+SCEN["world2-carrier"] = [
+  ["reload"], [1500],
+  ["eval", W2_PIN(260)], [600], ["probe", "near260", W2_MERGE], ["shot", "world2-carrier-260"],
+  ["eval", W2_PIN(700)], [600], ["probe", "mid700", W2_MERGE], ["shot", "world2-carrier-700"],
+  ["eval", W2_PIN(2400)], [600], ["probe", "far2400", W2_MERGE], ["shot", "world2-carrier-2400"],
+];
+
 const names = process.argv.slice(2);
 const which = names.length ? names : ["boot"];
 const errors = [];

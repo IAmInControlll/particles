@@ -137,18 +137,7 @@ export function createCutscene(cam, field, fx, course, PF) {
   // runs every frame after course.frame: owns the wreck's look once it blows
   cut.wreck = (dt) => {
     lastDt = dt;
-    if (boomT < 0) {
-      // on camera the carrier is close: lift it off the far-body depth
-      // floor and warm it up so the hull reads as a ship, not dust
-      if (!script) return;
-      for (let i = 0; i < lm.n; i++) {
-        const p = lm.lo + i, j = p * 3;
-        if (home[j] < -4e3) continue;
-        home[j + 2] = Math.max(home[j + 2], -0.8);
-        hcol[j] *= 1.35; hcol[j + 1] *= 1.35; hcol[j + 2] *= 1.35;
-      }
-      return;
-    }
+    if (boomT < 0) return;
     boomT += dt;
     while (stage < BOOM_STAGES.length && boomT >= BOOM_STAGES[stage]) {
       if (stage === 0) { pop(-90, PF.PAL.hot, 60, 90); pop(60, PF.PAL.hot, 60, 90); }

@@ -197,7 +197,18 @@ export function createSky(field, cam, PF, range, LIGHT) {
     size[p] = sz; hcol[j] = r; hcol[j + 1] = gg; hcol[j + 2] = b;
   };
 
-  const sky = { moods: MOODS.length, mood: 0, giant: gi };
+  // galactic band: a fixed great circle the far star sphere crowds
+  // (course.js bakes its stars from sky.band); a pale painted glow along
+  // it makes the stripe read as one landmark across every mood
+  const bn = unit([0.22, 0.95, 0.18]), be1 = unit([bn[1], -bn[0], 0]), be2 = cross(bn, be1);
+  const BAND = [];
+  for (let k = 0; k < 22; k++) {
+    const t = (k / 22) * 6.283, c = Math.cos(t), s = Math.sin(t);
+    BAND.push({ d: [0, 1, 2].map((i) => be1[i] * c + be2[i] * s), ax: [0, 1, 2].map((i) => be2[i] * c - be1[i] * s),
+      ang: 0.28, a: 0.4 + rng() * 0.35, spr: paintCloud([[150, 158, 186], [116, 118, 150], [232, 226, 214]]) });
+  }
+
+  const sky = { moods: MOODS.length, mood: 0, giant: gi, band: { n: bn, e1: be1, e2: be2 } };
   let mood = 0, prevMood = 0, mix = 1;
   sky.reset = () => { mood = prevMood = 0; mix = 1; anchor(0); gi.a = 1; };
   sky.reset();
@@ -208,8 +219,8 @@ export function createSky(field, cam, PF, range, LIGHT) {
     return [c[0] / 255, c[1] / 255, c[2] / 255];
   };
 
-  const drawClouds = (m, alpha) => {
-    for (const c of MOODS[m].clouds) {
+  const drawClouds = (list, alpha) => {
+    for (const c of list) {
       if (!projDir(c.d)) continue;
       const x = o[0] * SC, y = o[1] * SC;
       // second point along the bank's long axis gives scale + screen angle
@@ -250,8 +261,9 @@ export function createSky(field, cam, PF, range, LIGHT) {
     const wa = MOODS[mood].wash, wb = MOODS[prevMood].wash, k = mix;
     g.fillStyle = `rgb(${(wb[0] + (wa[0] - wb[0]) * k) * 0.45},${(wb[1] + (wa[1] - wb[1]) * k) * 0.45},${(wb[2] + (wa[2] - wb[2]) * k) * 0.45})`;
     g.fillRect(0, 0, W, H);
-    if (k < 1) drawClouds(prevMood, 1 - k);
-    drawClouds(mood, k);
+    drawClouds(BAND, 1);
+    if (k < 1) drawClouds(MOODS[prevMood].clouds, 1 - k);
+    drawClouds(MOODS[mood].clouds, k);
     g.globalAlpha = 1;
 
     V[0] = gdx / gd; V[1] = gdy / gd; V[2] = gdz / gd;
