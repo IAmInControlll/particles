@@ -1,7 +1,7 @@
 // check.mjs - private headless check for space.html. Screenshots -> shots/space-*.png
 // usage: node src/creations/space/check.mjs [scenario ...]  (default: boot)
 import { createRequire } from "module";
-import { mkdirSync } from "fs";
+import { mkdirSync, writeFileSync } from "fs";
 import { fileURLToPath } from "url";
 import path from "path";
 
@@ -535,6 +535,80 @@ const SCEN = {
     [350],
     ["shot", "picktags"],
   ],
+  // music-*: scheduler probes (live) and offline renders -> shots/music-*.wav
+  "music-sched": [
+    [2500],
+    ["probe", "before", "__space.au.musicStats()"],
+    ["probe", "cycle", `(async () => {
+      const s = __space, au = s.au, orig = au.music, log = [];
+      let force = null, maxNodes = 0;
+      au.music = (m, k) => orig(force || m, k);
+      const wait = (ms) => new Promise(r => setTimeout(r, ms));
+      const t0 = au.musicStats().time;
+      for (const m of ["pick", "race", "fight", "dock", "finale", "over"]) {
+        force = m;
+        for (let i = 0; i < 40; i++) { await wait(250); maxNodes = Math.max(maxNodes, au.musicStats().nodes); if (i === 7) log.push(au.musicStats()); }
+        log.push(Object.assign(au.musicStats(), { settled: m }));
+      }
+      force = null;
+      const t1 = au.musicStats().time;
+      return { audioSecs: +(t1 - t0).toFixed(1), maxNodes, log: log.filter(l => l.settled).map(l => ({ mood: l.mood, bpm: l.bpm, gains: l.gains, nodes: l.nodes })) };
+    })()`],
+    [3000],
+    ["probe", "after", "__space.au.musicStats()"],
+  ],
+  "music-render": [
+    [1500],
+    ["probe", "render", `(async () => {
+      const { renderMood } = await import("/src/creations/space/music.js");
+      const b64 = (u8) => { let s = ""; for (let i = 0; i < u8.length; i += 8192) s += String.fromCharCode(...u8.subarray(i, i + 8192)); return btoa(s); };
+      const wav = (f, sr) => {
+        const n = f.length, u = new Uint8Array(44 + n * 2), v = new DataView(u.buffer);
+        const w = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+        w(0, "RIFF"); v.setUint32(4, 36 + n * 2, true); w(8, "WAVEfmt "); v.setUint32(16, 16, true);
+        v.setUint16(20, 1, true); v.setUint16(22, 1, true); v.setUint32(24, sr, true); v.setUint32(28, sr * 2, true);
+        v.setUint16(32, 2, true); v.setUint16(34, 16, true); w(36, "data"); v.setUint32(40, n * 2, true);
+        for (let i = 0; i < n; i++) v.setInt16(44 + i * 2, Math.max(-1, Math.min(1, f[i])) * 32767, true);
+        return u;
+      };
+      const stat = (f) => { let p = 0, e = 0; for (const x of f) { p = Math.max(p, Math.abs(x)); e += x * x; } return { rms: +Math.sqrt(e / f.length).toFixed(4), peak: +p.toFixed(4) }; };
+      const { renderCross } = await import("/src/creations/space/music.js");
+      const secBands = (f) => { const o = []; for (let i = 0; i + SR <= f.length; i += SR) { let e = 0; for (let j = i; j < i + SR; j++) e += f[j] * f[j]; o.push(+Math.sqrt(e / SR).toFixed(4)); } return o; };
+      const MASTER = 0.85, SR = 44100, out = { music: {}, sfx: {}, files: {} };
+      for (const [m, k] of [["pick", 0.3], ["race", 0.3], ["race", 1], ["fight", 0.6], ["dock", 0.3], ["finale", 0.6], ["finale", 1], ["over", 0]]) {
+        const f = await renderMood(m, 8, k, SR);
+        for (let i = 0; i < f.length; i++) f[i] *= MASTER;
+        const name = "music-" + m + (k === 1 ? "-fast" : "");
+        out.music[name] = stat(f);
+        out.files[name + ".wav"] = b64(wav(f, SR));
+      }
+      out.cross = {};
+      for (const [a, b] of [["pick", "fight"], ["fight", "dock"], ["race", "over"]])
+        out.cross[a + ">" + b + "@4s"] = secBands(await renderCross(a, b, 4, 12));
+      // sfx through the real audio.js on an offline context; subtract the
+      // sfx-free baseline (idle engine + pick-mood pad) to isolate each hit
+      const { createAudio } = await import("/src/creations/space/audio.js");
+      const AC = window.AudioContext;
+      const run = async (name) => {
+        window.AudioContext = class { constructor() { return (window.__off = new OfflineAudioContext(1, SR * 2, SR)); } };
+        const au = createAudio();
+        au.unlock();
+        if (au.muted()) au.toggle();
+        const off = window.__off;
+        if (name) au.sfx(name);
+        const buf = await off.startRendering();
+        return buf.getChannelData(0).slice();
+      };
+      const base = await run(null);
+      for (const n of ["bolt", "tick", "hit", "kill", "gate", "pick", "comms", "wave", "over"]) {
+        const f = await run(n);
+        for (let i = 0; i < f.length; i++) f[i] -= base[i];
+        out.sfx[n] = stat(f);
+      }
+      window.AudioContext = AC;
+      return out;
+    })()`],
+  ],
 };
 
 // combat-lead: a fighter strafes at a known velocity (steering overridden each
@@ -681,7 +755,14 @@ for (const name of which) {
       await page.reload(); await page.waitForTimeout(400);
       if (!QS.includes("ship=")) await page.keyboard.press("Enter"); // leave the picker
     }
-    else if (s[0] === "probe") probes[s[1]] = await page.evaluate(s[2]);
+    else if (s[0] === "probe") {
+      const v = await page.evaluate(s[2]);
+      if (v && v.files) { // probe may hand back files (name -> base64) to save under shots/
+        for (const [f, b] of Object.entries(v.files)) writeFileSync(path.join(OUT, f), Buffer.from(b, "base64"));
+        v.files = Object.keys(v.files).map((f) => path.join(OUT, f));
+      }
+      probes[s[1]] = v;
+    }
   }
 }
 console.log(JSON.stringify({ errors, probes }, null, 2));

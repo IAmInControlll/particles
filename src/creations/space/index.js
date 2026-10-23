@@ -329,6 +329,7 @@ export function createSpace(field, PF, mods = {}) {
   game.frame = (T, dt) => {
     const chase = view === "chase";
     au.engine(cam.speedK, cam.boosting);
+    au.music(run.phase === "race" && run.legs === 2 && !run.storyDone ? "finale" : run.phase, cam.speedK);
     if (run.phase === "over" || run.phase === "pick") {
       course.frame(dt, snapTrack);
       fx.frame(dt, snapTrack);
