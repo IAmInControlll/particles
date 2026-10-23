@@ -129,8 +129,9 @@ export function createCutscene(cam, field, fx, course, PF) {
 
   // --- detonation: staged pops along the spine, then the core goes with a
   // flash and a shockwave ring; the hull particles fly apart and fade
-  cut.boom = () => { boomT = 0; stage = 0; ring[0] = lm.x; ring[1] = lm.y; ring[2] = lm.z; };
-  cut.resetBoom = () => { boomT = -1; flash = 0; };
+  // lm.boom tells course.js the hull is breaking up: stop masking the sky
+  cut.boom = () => { boomT = 0; stage = 0; lm.boom = true; ring[0] = lm.x; ring[1] = lm.y; ring[2] = lm.z; };
+  cut.resetBoom = () => { boomT = -1; flash = 0; lm.boom = false; };
   const pop = (along, col, n, mag) =>
     fx.burst(lm.x + lm.D[0] * along, lm.y + lm.D[1] * along, lm.z + lm.D[2] * along, col, n, mag);
 

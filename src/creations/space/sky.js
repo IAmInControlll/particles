@@ -210,6 +210,39 @@ export function createSky(field, cam, PF, range, LIGHT) {
 
   const sky = { moods: MOODS.length, mood: 0, giant: gi, band: { n: bn, e1: be1, e2: be2 } };
   let mood = 0, prevMood = 0, mix = 1;
+  // carrier silhouette: additive hull sprites can't occlude, so course.js
+  // paints a dark disc under each plate onto this canvas (same frame) and
+  // marks a coarse grid that hides far stars behind the hull next frame
+  const OGX = 64, OGY = 36;
+  let occ = new Uint8Array(OGX * OGY), occPrev = new Uint8Array(OGX * OGY), occN = 0;
+  const occSwap = () => { const t = occPrev; occPrev = occ; occ = t; occ.fill(0); occN = 0; };
+  sky.shadeBegin = () => {
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.beginPath();
+  };
+  sky.shade = (x, y, r) => {
+    g.moveTo((x + r) * SC, y * SC);
+    g.arc(x * SC, y * SC, r * SC, 0, 6.2832);
+    occN++;
+    const cw = innerWidth / OGX, ch = innerHeight / OGY;
+    const c0 = Math.max(0, ((x - r) / cw) | 0), c1 = Math.min(OGX - 1, ((x + r) / cw) | 0);
+    const r0 = Math.max(0, ((y - r) / ch) | 0), r1 = Math.min(OGY - 1, ((y + r) / ch) | 0);
+    for (let gy = r0; gy <= r1; gy++)
+      for (let gx = c0; gx <= c1; gx++) {
+        const dx = (gx + 0.5) * cw - x, dy = (gy + 0.5) * ch - y;
+        if (dx * dx + dy * dy <= r * r) occ[gy * OGX + gx] = 1;
+      }
+  };
+  sky.shadeEnd = () => {
+    if (!occN) return;
+    g.fillStyle = "rgb(7,9,15)";
+    g.fill();
+  };
+  sky.occluded = (x, y) => {
+    const gx = (x * OGX / innerWidth) | 0, gy = (y * OGY / innerHeight) | 0;
+    return gx >= 0 && gy >= 0 && gx < OGX && gy < OGY && occPrev[gy * OGX + gx] === 1;
+  };
+
   sky.reset = () => { mood = prevMood = 0; mix = 1; anchor(0); gi.a = 1; };
   sky.reset();
 
@@ -240,6 +273,7 @@ export function createSky(field, cam, PF, range, LIGHT) {
 
   // stage: 0-2 campaign legs, 3 endless; endK: endless progress (cycles moods)
   sky.frame = (dt, stage, endK, snapMode) => {
+    occSwap(); // stars read last frame's hull grid; an unseen carrier clears it
     const want = stage < 3 ? stage : (3 + endK) % MOODS.length;
     if (want !== mood && mix >= 1) { prevMood = mood; mood = want; mix = 0; }
     mix = Math.min(1, mix + dt / 5);

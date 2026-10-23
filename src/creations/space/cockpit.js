@@ -235,10 +235,15 @@ export function createCockpit(field, cam, PF, layer, pad) {
         oz = cam.z + R[2] * vx + U[2] * vy + F[2] * HD;
         wpx = (0.3 * L * cam.f) / HD;
       } else {
-        L = 40;
-        ox = cam.x + cam.fwd[0] * 170 + cam.up[0] * 22;
-        oy = cam.y + cam.fwd[1] * 170 + cam.up[1] * 22;
-        oz = cam.z + cam.fwd[2] * 170 + cam.up[2] * 22;
+        // chase: hang it low-left near the eye (150 back, 42 up) so the eye
+        // looks down ~23deg onto the ship's level plane - the stalk disc
+        // opens up instead of sitting edge-on ahead of the hull
+        const R = cam.vr, U = cam.vu, F = cam.vf;
+        const fb = 105 - 150, ub = 42 - 45, rb = -45;
+        L = 14;
+        ox = cam.x + F[0] * fb + U[0] * ub + R[0] * rb;
+        oy = cam.y + F[1] * fb + U[1] * ub + R[1] * rb;
+        oz = cam.z + F[2] * fb + U[2] * ub + R[2] * rb;
       }
       let k = px * dx + py * dy + pz * dz;
       px -= k * dx; py -= k * dy; pz -= k * dz;

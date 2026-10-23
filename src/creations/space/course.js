@@ -735,7 +735,7 @@ export function createCourse(field, cam, PF, layers) {
     sky.frame(dt, stage(), lm.done ? Math.max(0, ((endZ - cam.z) / 40000) | 0) : 0, snapMode);
     const behindGiant = () => {
       const ex = o[0] - sky.gx, ey = o[1] - sky.gy;
-      return ex * ex + ey * ey < sky.gr2;
+      return ex * ex + ey * ey < sky.gr2 || sky.occluded(o[0], o[1]);
     };
     const hide = (p) => {
       const j = p * 3;
@@ -911,6 +911,7 @@ export function createCourse(field, cam, PF, layers) {
       lm.bay.z = lm.z - 14 * X2 - 2.5 * Y2 + bs * 10 * V[2];
       const away = !cam.project(lm.x, lm.y, lm.z) && ex * ex + ey * ey + ez * ez > 400 * 400;
       const blink = Math.sin(stT * 2.6) > 0.35;
+      sky.shadeBegin();
       for (let i = 0; i < LMK_N; i++) {
         const p = lm.lo + i, j = p * 3;
         if (away) { hide(p); continue; }
@@ -938,6 +939,11 @@ export function createCourse(field, cam, PF, layers) {
         // per-point lum, since ~4 sprites stack on every pixel
         const vz = cam.K * (1 - o[2] / PZ);
         size[p] = Math.min(16, Math.max(ROLE_SZ[k], lmG[i] * 130 / vz));
+        if ((k === PLATE || k === EDGE) && !lm.boom) {
+          const sx = o[0], sy = o[1];
+          const r = 0.6 * lmG[i] * cam.f / Math.max(1, Math.hypot(wx - E.x, wy - E.y, wz - E.z));
+          if (r > 1) sky.shade(sx, sy, r);
+        }
         const sun = Math.max(0, nx * llx + ny * lly + nz * llz);
         const L = k === PLATE ? 0.34 + 0.85 * sun
           : k === EDGE ? 0.5 + 0.7 * sun
@@ -949,6 +955,7 @@ export function createCourse(field, cam, PF, layers) {
           : 1;
         hcol[j] = lmCol[i * 3] * L; hcol[j + 1] = lmCol[i * 3 + 1] * L; hcol[j + 2] = lmCol[i * 3 + 2] * L;
       }
+      sky.shadeEnd();
     }
 
     // planets: respawn when the center exits; shell is static offsets,
