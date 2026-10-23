@@ -22,10 +22,10 @@ export function createSpace(field, PF, mods = {}) {
   const cut = (f) => (N * f) | 0;
   const layers = {
     cockpit: { lo: 0, hi: cut(0.10) },
-    ent: { lo: cut(0.10), hi: cut(0.36) },
-    course: { lo: cut(0.36), hi: cut(0.55) },
-    planets: { lo: cut(0.55), hi: cut(0.70) }, // sun + derelict + planets + giant
-    stars: { lo: cut(0.70), hi: cut(0.89) },
+    ent: { lo: cut(0.10), hi: cut(0.29) }, // 5 ships + 8 picks still leave ~80 bolts
+    course: { lo: cut(0.29), hi: cut(0.48) },
+    planets: { lo: cut(0.48), hi: cut(0.65) }, // sun + carrier + planets + giant
+    stars: { lo: cut(0.65), hi: cut(0.89) }, // far sphere is ~10% on screen: needs count
     fx: { lo: cut(0.89), hi: N },
   };
   // world layers sit under the hull backing - cull keeps them in the panes
@@ -350,7 +350,7 @@ export function createSpace(field, PF, mods = {}) {
   }
 
   const ACT = {
-    pods: () => fx.escort(course.landmark, 14),
+    pods: () => fx.escort(course.landmark.bay, 14),
     // the reactor takes Orren's pack with the ship
     boom: () => {
       cine.boom();
