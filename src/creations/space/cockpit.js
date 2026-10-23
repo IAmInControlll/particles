@@ -157,8 +157,8 @@ export function createCockpit(field, cam, PF, layer, pad) {
       }
       return;
     }
-    // stalk (Elite scanner): disc in the ship's right/fwd plane, the tip's
-    // shadow on it joined to the centre, and a stalk from tip to shadow
+    // stalk (Elite scanner): disc in the ship's right/fwd plane, the whole
+    // arrow's shadow on it (through the centre), a stalk from tip to shadow
     ring(ox, oy, oz, R, F, rad, 0.45, 1.3);
     ring(ox, oy, oz, R, F, rad * 0.5, 0.16, 1);
     vert(ox - R[0] * rad, oy - R[1] * rad, oz - R[2] * rad, 0.14, 1, true);
@@ -169,10 +169,10 @@ export function createCockpit(field, cam, PF, layer, pad) {
     const h = L * 0.5, du = dx * U[0] + dy * U[1] + dz * U[2];
     const tx = ox + dx * h, ty = oy + dy * h, tz = oz + dz * h;
     const sx = tx - U[0] * du * h, sy = ty - U[1] * du * h, sz = tz - U[2] * du * h;
-    vert(ox, oy, oz, 0.85, 2, true);
+    vert(ox - dx * h + U[0] * du * h, oy - dy * h + U[1] * du * h, oz - dz * h + U[2] * du * h, 0.7, 2, true);
     vert(sx, sy, sz, 0.85, 2, false);
-    vert(tx, ty, tz, 0.6, 1.4, true);
-    vert(sx, sy, sz, 0.6, 1.4, false);
+    vert(tx, ty, tz, 0.75, 1.4, true);
+    vert(sx, sy, sz, 0.75, 1.4, false);
     dot(sx, sy, sz, 2.8, 0.9, 1);
   };
 
@@ -226,7 +226,7 @@ export function createCockpit(field, cam, PF, layer, pad) {
       if (onPad) {
         // portrait squeezes the dash: shorter arrow
         L = HL * Math.min(1, (innerWidth / innerHeight) * 1.7);
-        lift = pad.r + innerHeight * 0.075;
+        lift = pad.r + innerHeight * 0.085;
         const sx = pad.x + pad.ux * lift, sy = pad.y + pad.uy * lift;
         const vx = ((sx - cam.cx - cam.ox) * HD) / cam.f, vy = (-(sy - cam.cy - cam.oy) * HD) / cam.f;
         const R = cam.right, U = cam.up, F = cam.fwd;
