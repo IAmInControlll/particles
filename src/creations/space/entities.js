@@ -119,7 +119,8 @@ export function createEntities(field, cam, PF, layer, ctx) {
   const ships = [], bolts = [], picks = [];
   for (let s = 0; s < SHIPS; s++)
     ships.push({ x: 0, y: 0, z: 1e9, vx: 0, vy: 0, vz: 0, yaw: 0, pitch: 0,
-      hp: 3, alive: false, state: "in", stateT: 0, fireT: 1, age: 0,
+      hp: 3, hpMax: 3, hitT: 0, bx: 0, by: 0, // hitT: white-flash timer; bx/by: target box centre x, bottom y (px)
+      alive: false, state: "in", stateT: 0, fireT: 1, age: 0,
       kind: "fighter", K: KINDS.fighter, score: 250,
       lo: layer.lo + s * SHIP_PTS, side: s % 2 ? 1 : -1 });
   for (let b = 0; b < BOLTS; b++)
@@ -158,6 +159,8 @@ export function createEntities(field, cam, PF, layer, ctx) {
   for (const p of picks) park(p.lo, p.lo + PICK_PTS);
 
   const ent = {};
+  // reticle hit marker state read by aim.js: t seconds left, kill = bigger X
+  ent.mark = { t: 0, kill: false };
 
   ent.reset = () => {
     for (const s of ships) { s.alive = false; release(s.lo, s.lo + SHIP_PTS, cam.cx, cam.cy, 30); }
@@ -172,7 +175,8 @@ export function createEntities(field, cam, PF, layer, ctx) {
     s.kind = KINDS[kind] ? kind : "fighter";
     s.score = s.K.score;
     s.alive = true;
-    s.hp = s.K.hp;
+    s.hp = s.hpMax = s.K.hp;
+    s.hitT = 0;
     s.age = 0;
     s.state = "in"; s.stateT = 0;
     s.x = cam.x + cam.fwd[0] * 1300 + (rnd() - 0.5) * 600;
@@ -259,6 +263,7 @@ export function createEntities(field, cam, PF, layer, ctx) {
     for (const s of ships) {
       if (!s.alive) continue;
       s.stateT += dt;
+      s.hitT = Math.max(0, s.hitT - dt);
       const dC = Math.hypot(s.x - cam.x, s.y - cam.y, s.z - cam.z);
       const spd = (190 + cam.diff * 55) * s.K.spdK;
       s.age += dt;
@@ -339,15 +344,18 @@ export function createEntities(field, cam, PF, layer, ctx) {
           continue;
         }
         const l = bx0 - 18, r = bx1 + 18, tp = by0 - 18, bt = by1 + 18;
+        s.bx = (l + r) / 2; s.by = bt;
         const side = (i - (SHIP_PTS - MARK)) >> 2, u = ((i - (SHIP_PTS - MARK)) & 3) / 3;
         home[j] = side === 1 ? r : side === 3 ? l : l + (r - l) * u;
         home[j + 1] = side === 0 ? tp : side === 2 ? bt : tp + (bt - tp) * u;
         home[j + 2] = -5;
         if (snapMode) snap[p] = 1;
         size[p] = 1.9;
-        hcol[j] = RED[0] * 1.9; hcol[j + 1] = RED[1] * 1.9; hcol[j + 2] = RED[2] * 1.9;
+        const fl = s.hitT > 0 ? 2.4 : 0;
+        hcol[j] = fl || RED[0] * 1.9; hcol[j + 1] = fl || RED[1] * 1.9; hcol[j + 2] = fl || RED[2] * 1.9;
       }
     }
+    ent.mark.t = Math.max(0, ent.mark.t - dt);
 
     // --- bolts ---
     // player bolts shoot hostile bolts down: both die, small payout
@@ -393,7 +401,12 @@ export function createEntities(field, cam, PF, layer, ctx) {
             park(b.lo, b.lo + BOLT_PTS);
             s.hp--;
             ctx.fx.burst(b.x, b.y, b.z, PF.PAL.accent, 30, 80);
-            if (s.hp <= 0) killShip(s);
+            if (s.hp <= 0) { ent.mark.t = 0.3; ent.mark.kill = true; killShip(s); }
+            else {
+              s.hitT = 0.12;
+              ent.mark.t = 0.15; ent.mark.kill = false;
+              ctx.au.sfx("tick");
+            }
             break;
           }
         }

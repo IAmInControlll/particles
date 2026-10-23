@@ -537,6 +537,110 @@ const SCEN = {
   ],
 };
 
+// combat-lead: a fighter strafes at a known velocity (steering overridden each
+// frame), the lead pip is computed by aim.js, the cam is turned onto it and one
+// bolt fired. Control: a bolt at the ship's current position must miss.
+const AIM_SETUP = `(() => {
+  const s = __space, e = s.ent;
+  s.auto = false; s.run.phase = "fight"; s.run.invuln = 999; s.run.hull = s.run.hullMax;
+  e.reset();
+  e.spawnShip("fighter");
+  const sh = e.ships.find(x => x.alive);
+  window.__V = [200, -20, -60];
+  window.__place = () => {
+    const c = s.cam;
+    Object.assign(c, { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, yaw: 0, pitch: 0, roll: 0, yv: 0, pv: 0, rv: 0 });
+    c.update(1e-4, s.keys);
+    sh.x = -100; sh.y = 30; sh.z = -600; sh.hp = sh.hpMax; sh.hitT = 0;
+  };
+  window.__sh = sh;
+  const f0 = e.frame;
+  e.frame = (dt, ...a) => {
+    const p = [sh.x, sh.y, sh.z];
+    f0(dt, ...a);
+    if (!sh.alive) return;
+    sh.x = p[0] + __V[0] * dt; sh.y = p[1] + __V[1] * dt; sh.z = p[2] + __V[2] * dt;
+    sh.vx = __V[0]; sh.vy = __V[1]; sh.vz = __V[2];
+    sh.state = "strafe"; sh.stateT = 0; sh.age = 0; sh.fireT = 1e9;
+  };
+  window.__spy = { maxHit: 0, sfx: [], hp: [] };
+  const sfx = s.au.sfx;
+  s.au.sfx = (n, ...r) => { __spy.sfx.push(n); return sfx(n, ...r); };
+  setInterval(() => { __spy.maxHit = Math.max(__spy.maxHit, sh.hitT); }, 4);
+  __place();
+  return { hp: sh.hp, hpMax: sh.hpMax, kind: sh.kind };
+})()`;
+const AIM_AT = (lead, dyaw, fire = false) => `(async () => {
+  const s = __space, c = s.cam, sh = __sh;
+  const { leadAim, aimState } = await import("/src/creations/space/aim.js");
+  __place();
+  const u = [0, 0, 0];
+  let t = 0;
+  for (let i = 0; i < 3; i++) {
+    if (${lead}) t = leadAim(c, sh, u);
+    else { const d = Math.hypot(sh.x - c.x, sh.y - c.y, sh.z - c.z); u[0] = (sh.x - c.x) / d; u[1] = (sh.y - c.y) / d; u[2] = (sh.z - c.z) / d; }
+    c.pitch = Math.asin(u[1]); c.yaw = Math.atan2(-u[0], -u[2]) + ${dyaw};
+    c.update(1e-4, s.keys);
+    for (const k of ["vf", "vr", "vu"]) { const src = { vf: c.fwd, vr: c.right, vu: c.up }[k]; for (let q = 0; q < 3; q++) c[k][q] = src[q]; }
+  }
+  window.__lead = { t, u: [...u] };
+  window.__fire = () => s.ent.playerFire();
+  if (${fire}) __fire();
+  return { t: +t.toFixed(3), u: u.map(v => +v.toFixed(4)) };
+})()`;
+const PIP_PROBE = `(async () => {
+  const s = __space, c = s.cam, sh = __sh;
+  const { leadAim, aimState } = await import("/src/creations/space/aim.js");
+  const u = [0, 0, 0];
+  leadAim(c, sh, u);
+  c.project(c.x + u[0] * 2500, c.y + u[1] * 2500, c.z + u[2] * 2500);
+  const want = [c.out[0], c.out[1]];
+  return { drawn: [Math.round(aimState.pip.x), Math.round(aimState.pip.y)], want: want.map(Math.round), on: aimState.on, tol: Math.round(aimState.tol) };
+})()`;
+SCEN["combat-lead"] = [
+  ["reload"], [1500],
+  ["probe", "setup", AIM_SETUP],
+  ["eval", AIM_AT(false, 0)], ["eval", "__fire()"], [1600],
+  ["probe", "controlMiss", "({ hp: __sh.hp, hit: __spy.maxHit, sfx: __spy.sfx })"],
+  ["probe", "leadSolve", AIM_AT(true, 0.09)], [60],
+  ["probe", "pipOffTarget", PIP_PROBE],
+  ["shot", "combat-lead-off"],
+  ["probe", "leadAimed", AIM_AT(true, 0, true)], [40],
+  ["probe", "pipOnTarget", PIP_PROBE],
+  ["shot", "combat-lead-on"],
+  [1000],
+  ["probe", "leadHit", "({ hp: __sh.hp, hitT: +__spy.maxHit.toFixed(3), sfx: __spy.sfx })"],
+];
+// combat-hit: two non-lethal hits show the flash, tick, HP row, hit marker; third kills
+SCEN["combat-hit"] = [
+  ["reload"], [1500],
+  ["probe", "setup", AIM_SETUP],
+  ["eval", "__V = [0, 0, 0]"],
+  ["eval", AIM_AT(true, 0, true)], [900],
+  ["probe", "afterOne", "({ hp: __sh.hp, hpMax: __sh.hpMax, flash: +__spy.maxHit.toFixed(3), sfx: __spy.sfx, mark: +__space.ent.mark.t.toFixed(3) })"],
+  ["eval", "__fire()"], [900],
+  ["probe", "afterTwo", "({ hp: __sh.hp, alive: __sh.alive, sfx: __spy.sfx })"],
+  // hitT/mark last ~0.1s, shorter than a screenshot: pin them to eyeball the draw
+  ["eval", "__sh.hitT = 9; __space.ent.mark.t = 9; __space.ent.mark.kill = false"],
+  [120], ["shot", "combat-hit-hp"],
+  ["eval", "__sh.hitT = 0; __space.ent.mark.t = 9; __space.ent.mark.kill = true"],
+  [120], ["shot", "combat-kill-mark"],
+  ["eval", "__sh.hitT = 0; __space.ent.mark.t = 0"],
+  ["eval", "__fire()"], [900],
+  ["probe", "killed", "({ alive: __sh.alive, kills: __space.run.kills, sfx: __spy.sfx })"],
+];
+SCEN["combat-lead-chase"] = [
+  ["goto", "?ship=kestrel&view=chase"], [2500],
+  ["probe", "view", "__space.view"],
+  ["probe", "chase_setup", AIM_SETUP],
+  ["probe", "chase_leadSolve", AIM_AT(true, 0.09)], [60],
+  ["probe", "chase_pipOffTarget", PIP_PROBE],
+  ["shot", "combat-chase-off"],
+  ["probe", "chase_leadAimed", AIM_AT(true, 0)], [60],
+  ["probe", "chase_pipOnTarget", PIP_PROBE],
+  ["shot", "combat-chase-on"],
+];
+
 const names = process.argv.slice(2);
 const which = names.length ? names : ["boot"];
 const errors = [];

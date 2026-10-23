@@ -8,6 +8,7 @@
 // parks any world home that lands outside the panes or under a far member.
 // Instruments draw live on top of the backing from {run, cam, world}.
 import { FRAMES } from "./frames.js";
+import { drawAim } from "./aim.js";
 
 const ZSPLIT = 2.4; // member mean z below this paints on the far sway layer
 
@@ -570,6 +571,8 @@ export function createDeck(cam, field) {
         text(g, tag, o[0] + 14, o[1] - 15, 10, col, "left", 4);
       }
     }
+
+    if (world && world.ent) drawAim(g, cam, world.ent, W, H, st.blink);
 
     // killfeed: recent event popups under the reticle, newest on top,
     // fading over ~3.5s - what the pickup/kill actually gave you

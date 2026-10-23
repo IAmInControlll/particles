@@ -164,7 +164,7 @@ export function createSpace(field, PF, mods = {}) {
   }
 
   ent = createEntities(field, cam, PF, layers.ent, {
-    fx,
+    fx, au,
     hit,
     onKill: (s) => {
       run.score += s.score;
