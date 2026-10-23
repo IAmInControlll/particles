@@ -127,31 +127,89 @@ export function createCourse(field, cam, PF, layers) {
   const GATE_PTS = 128, ROCK_PTS = 230;
   const GATES = Math.max(3, Math.min(9, (CN / 2 / GATE_PTS) | 0));
   const ROCKS = Math.max(0, Math.min(5, ((CN - GATES * GATE_PTS) / ROCK_PTS) | 0));
+  // rubble: small rocks from the course tail, packed into rock-field stretches
+  const RUB_PTS = 36;
+  const RUBS = Math.max(0, Math.min(16, ((CN - GATES * GATE_PTS - ROCKS * ROCK_PTS) / RUB_PTS) | 0));
 
-  const ring = new Float32Array(GATE_PTS * 2);
-  for (let i = 0; i < GATE_PTS; i++) {
-    if (i < 104) {
-      const a = (i / 104) * 6.283;
-      ring[i * 2] = Math.cos(a); ring[i * 2 + 1] = Math.sin(a);
-    } else if (i < 124) {
-      // tick marks just outside the ring at 15-degree spacing
-      const a = ((i - 104) / 20) * 6.283;
-      ring[i * 2] = Math.cos(a) * 1.09; ring[i * 2 + 1] = Math.sin(a) * 1.09;
-    } else {
-      // inner guide lights on the ring's top
-      const a = -1.5708 + (i - 124) * 0.09;
-      ring[i * 2] = Math.cos(a) * 0.82; ring[i * 2 + 1] = Math.sin(a) * 0.82;
+  // gate shapes: unit xy + a role per point. Roles: 0 rim, 1 tick mark
+  // just outside the rim, 2 guide light on the ring's top, 3 crossbar
+  // (laid along local x, rotated by g.ang per frame)
+  const bakeGate = (barN) => {
+    const xy = new Float32Array(GATE_PTS * 2), role = new Uint8Array(GATE_PTS);
+    const rimN = 104 - barN;
+    for (let i = 0; i < GATE_PTS; i++) {
+      let a, rr;
+      if (i < rimN) { a = (i / rimN) * 6.283; rr = 1; }
+      else if (i < 104) {
+        role[i] = 3;
+        xy[i * 2] = -0.94 + ((i - rimN) / (barN - 1)) * 1.88;
+        continue;
+      } else if (i < 124) { role[i] = 1; a = ((i - 104) / 20) * 6.283; rr = 1.09; }
+      else { role[i] = 2; a = -1.5708 + (i - 124) * 0.09; rr = 0.82; }
+      xy[i * 2] = Math.cos(a) * rr; xy[i * 2 + 1] = Math.sin(a) * rr;
     }
-  }
+    return { xy, role };
+  };
+  const RING = bakeGate(0), SPIN = bakeGate(30);
+  const BAR_HW = 0.17; // crossbar clip half-width, in gate radii
+
+  // gate kinds: one row drives spawn mix, motion, collision, paint and the
+  // first-sighting intro. unlock = first campaign stage (run.legs; 3 =
+  // endless) that rolls it; w = roll weight; ramp = extra weight per 20k
+  // flown in endless. Optional hooks: spawn(g) seeds per-gate state,
+  // move(g, dt) runs per frame and sets the autopilot aim g.ax/g.ay,
+  // hit(g, dx, dy) turns an inner-ring pass into a clip. field: the
+  // corridor segment leading up to this gate fills with rubble.
+  const GOLD = [1.0, 0.76, 0.28], VIOLET = [0.62, 0.5, 1.0], BAR = [1.0, 0.36, 0.24],
+    RUBC = [0.78, 0.64, 0.52];
+  const KINDS = {
+    ring: { shape: RING, col: PF.PAL.sky, unlock: 0, w: 5, ramp: 0 },
+    drift: {
+      shape: RING, col: VIOLET, unlock: 0, w: 2, ramp: 0.5,
+      intro: "drift gate - it slides, track it", hex: "#a090ff",
+      spawn: (g) => { g.ph = rnd() * 6.283; g.amp = 40 + rnd() * 45; },
+      move: (g) => {
+        // slow lissajous around the corridor point - readable, trackable
+        g.x = g.bx + Math.sin(stT * 0.8 + g.ph) * g.amp;
+        g.y = g.by + Math.sin(stT * 0.55 + g.ph * 1.7) * g.amp * 0.45;
+        g.ax = g.x; g.ay = g.y;
+      },
+    },
+    boost: {
+      shape: RING, col: GOLD, unlock: 1, w: 1, ramp: 0,
+      intro: "gold gate - boost refill and surge", hex: "#ffc247",
+    },
+    rocks: {
+      shape: RING, col: PF.PAL.sky, unlock: 1, w: 1.2, ramp: 0.6, field: true,
+      intro: "rock field - hold the clear line", hex: "#c8b49a",
+    },
+    spin: {
+      shape: SPIN, col: PF.PAL.sky, unlock: 2, w: 1.6, ramp: 0.8,
+      intro: "spinner gate - thread the gap", hex: "#ff6a4a",
+      spawn: (g) => { g.ang = rnd() * 3.1416; g.spinV = (rnd() < 0.5 ? -1 : 1) * (0.6 + rnd() * 0.35); },
+      move: (g, dt) => {
+        g.ang += g.spinV * dt;
+        // autopilot: aim at the middle of an open half where the bar will
+        // be at arrival time - converges as the gate closes
+        const tA = Math.max(0, cam.z - g.z) / Math.max(250, cam.speed);
+        const a = g.ang + g.spinV * tA;
+        g.ax = g.x - Math.sin(a) * g.r * 0.48;
+        g.ay = g.y + Math.cos(a) * g.r * 0.48;
+      },
+      hit: (g, dx, dy) => Math.abs(-dx * Math.sin(g.ang) + dy * Math.cos(g.ang)) < g.r * BAR_HW,
+    },
+  };
+  // leg 1 opens on a scripted tutorial run before the rolls take over
+  const OPENING = ["ring", "ring", "ring", "drift", "ring", "ring", "boost", "ring", "drift"];
 
   const gates = [];
   for (let g = 0; g < GATES; g++)
-    gates.push({ z: 0, x: 0, y: 0, r: 30, state: 0, flash: 0, lo: C.lo + g * GATE_PTS });
+    gates.push({ z: 0, x: 0, y: 0, bx: 0, by: 0, ax: 0, ay: 0, r: 30, state: 0, flash: 0,
+      kind: "ring", ang: 0, spinV: 0, ph: 0, amp: 0, lo: C.lo + g * GATE_PTS });
 
-  const rocks = [];
-  for (let r = 0; r < ROCKS; r++) {
-    const body = new Float32Array(ROCK_PTS * 3);
-    for (let i = 0; i < ROCK_PTS; i++) {
+  const lumpBody = (n) => {
+    const body = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) {
       // lumpy sphere: random direction, radius modulated by low-freq lumps
       const a = rnd() * 6.283, b = Math.acos(2 * rnd() - 1);
       const lump = 0.68 + 0.32 * Math.sin(a * 3 + b * 5) + rnd() * 0.18;
@@ -159,8 +217,14 @@ export function createCourse(field, cam, PF, layers) {
       body[i * 3 + 1] = Math.cos(b) * lump;
       body[i * 3 + 2] = Math.sin(b) * Math.sin(a) * lump;
     }
+    return body;
+  };
+  const rocks = [];
+  for (let r = 0; r < ROCKS + RUBS; r++) {
+    const rub = r >= ROCKS;
     rocks.push({ x: 0, y: 0, z: 0, r: 40, spin: rnd() * 6.283, spinV: 0.1 + rnd() * 0.3,
-      lo: C.lo + GATES * GATE_PTS + r * ROCK_PTS, body, dead: true });
+      lo: rub ? C.lo + GATES * GATE_PTS + ROCKS * ROCK_PTS + (r - ROCKS) * RUB_PTS : C.lo + GATES * GATE_PTS + r * ROCK_PTS,
+      n: rub ? RUB_PTS : ROCK_PTS, rub, body: lumpBody(rub ? RUB_PTS : ROCK_PTS), dead: true });
   }
 
   // --- planets: procedural landmarks floating beside the corridor.
@@ -417,20 +481,57 @@ export function createCourse(field, cam, PF, layers) {
       if (leg != null) lm.leg = Math.min(leg, LEGD.length - 1);
       spawnLm();
     },
-    finishStory: () => { lm.done = true; },
+    finishStory: () => { lm.done = true; endZ = cam.z; },
     stars: { sx, sy, sz, n: SN } };
 
   const gateGap = (dist) => 740 + Math.min(560, dist * 0.026) + rnd() * 180;
   const gateR = (dist) => Math.max(26, 46 - dist * 0.0009);
 
-  function spawnGate(g, z, dist) {
+  // campaign stage drives the gate mix: run.legs while the story runs,
+  // 3 once it is over (lm.leg/lm.done already track exactly that)
+  const stage = () => (lm.done ? 3 : lm.leg);
+  let spawnSeq = 0, endZ = 0;
+  const seen = new Set();
+  course.mix = [{}, {}, {}, {}]; // kinds rolled per stage, for probes
+  const rollKind = (dist) => {
+    const s = stage();
+    if (s === 0 && spawnSeq < OPENING.length) return OPENING[spawnSeq];
+    const far = s === 3 ? Math.max(0, endZ - cam.z) / 20000 : 0;
+    let tot = 0;
+    for (const id in KINDS) if (KINDS[id].unlock <= s) tot += KINDS[id].w * (1 + KINDS[id].ramp * far);
+    let r = rnd() * tot;
+    for (const id in KINDS) {
+      const k = KINDS[id];
+      if (k.unlock > s) continue;
+      r -= k.w * (1 + k.ramp * far);
+      if (r <= 0) return id;
+    }
+    return "ring";
+  };
+
+  function spawnGate(g, z, dist, prev) {
     g.z = z;
-    g.x = trackX(z);
-    g.y = trackY(z);
+    g.x = g.bx = g.ax = trackX(z);
+    g.y = g.by = g.ay = trackY(z);
     g.r = gateR(dist);
     g.state = 0;
     g.flash = 0;
+    let id = rollKind(dist);
+    // never two rock fields back to back - the second would start empty
+    if (id === "rocks" && prev && prev.kind === "rocks") id = "ring";
+    spawnSeq++;
+    const m = course.mix[stage()];
+    m[id] = (m[id] || 0) + 1;
+    setKind(g, id, prev);
   }
+  // prev: the gate before g along the corridor (a rock field fills the gap)
+  function setKind(g, id, prev) {
+    g.kind = id;
+    const k = KINDS[id];
+    if (k.spawn) k.spawn(g);
+    if (k.field && prev) fillField(prev, g);
+  }
+  course.setKind = setKind; // check.mjs stages each kind in view
 
   function spawnRock(k, z, dist) {
     const side = rnd() < 0.5 ? -1 : 1;
@@ -442,31 +543,61 @@ export function createCourse(field, cam, PF, layers) {
     k.dead = false;
   }
 
+  // rock-field stretch: pack the rubble pool (plus any idle big rocks)
+  // into the segment between gate a and gate b. A lane stays clear around
+  // both the straight a->b line and b's own axis (a pilot lines up early),
+  // so the field is dense but always has a flyable thread.
+  function fillField(a, b) {
+    const free = rocks.filter((k) => k.dead || k.z > cam.z + 100); // idle or behind us
+    const n = free.length;
+    for (let i = 0; i < n; i++) {
+      const k = free[i];
+      k.r = k.rub ? 9 + rnd() * 14 : 26 + rnd() * 20;
+      const t = 0.12 + ((i + rnd()) / n) * 0.8;
+      k.z = a.z + (b.z - a.z) * t;
+      const lx = a.bx + (b.bx - a.bx) * t, ly = a.by + (b.by - a.by) * t;
+      const clr = 58 + k.r;
+      for (let tries = 0; tries < 8; tries++) {
+        const ang = rnd() * 6.283, rr = clr + rnd() * (k.rub ? 150 : 110);
+        k.x = lx + Math.cos(ang) * rr;
+        k.y = ly + Math.sin(ang) * rr * 0.8;
+        if (Math.hypot(k.x - b.bx, k.y - b.by) > clr && Math.hypot(k.x - lx, k.y - ly) > clr) break;
+      }
+      k.dead = false;
+    }
+  }
+
   course.reset = () => {
-    let z = -1100;
-    for (const g of gates) { spawnGate(g, z, 0); z -= gateGap(0); }
-    for (const k of rocks) k.dead = true;
     lm.leg = 0; lm.done = false; // each run replays the campaign fresh
+    spawnSeq = 0; endZ = 0;
+    seen.clear();
+    for (const m of course.mix) for (const id in m) delete m[id];
+    for (const k of rocks) k.dead = true;
+    let z = -1100, prev = null;
+    for (const g of gates) { spawnGate(g, z, 0, prev); prev = g; z -= gateGap(0); }
     spawnLm();
   };
   course.reset();
 
-  // returns events for the frame: {type:"pass"|"clip"|"miss"|"rock", gate?}
+  // returns events for the frame: {type:"pass"|"clip"|"miss"|"rock", kind, gate?}
   course.check = (prevZ) => {
     for (const g of gates) {
       if (g.state !== 0 || g.z > prevZ || g.z <= cam.z) continue;
-      const d = Math.hypot(cam.x - g.x, cam.y - g.y);
-      if (d < g.r * 0.78) { g.state = 1; g.flash = 1; return { type: "pass", gate: g }; }
-      if (d < g.r * 1.3) { g.state = 2; return { type: "clip", gate: g }; }
+      const dx = cam.x - g.x, dy = cam.y - g.y, d = Math.hypot(dx, dy);
+      const hit = KINDS[g.kind].hit;
+      if (d < g.r * 0.78 && !(hit && hit(g, dx, dy))) {
+        g.state = 1; g.flash = 1;
+        return { type: "pass", kind: g.kind, gate: g };
+      }
       g.state = 2;
-      return { type: "miss", gate: g };
+      return { type: d < g.r * 1.3 ? "clip" : "miss", kind: g.kind, gate: g };
     }
     for (const k of rocks) {
       if (k.dead) continue;
       const dx = cam.x - k.x, dy = cam.y - k.y, dz = cam.z - k.z;
       if (dx * dx + dy * dy + dz * dz < k.r * k.r * 0.49) {
         k.dead = true;
-        return { type: "rock", rock: k };
+        return { type: "rock", kind: "rock", rock: k };
       }
     }
     return null;
@@ -509,22 +640,35 @@ export function createCourse(field, cam, PF, layers) {
     }
 
     // recycle + write gates; nearest pending gate gets the highlight
-    let front = 1e9, next = null;
+    let front = null, next = null;
     for (const g of gates) {
-      if (g.z < front) front = g.z;
+      if (!front || g.z < front.z) front = g;
       if (g.state === 0 && g.z < cam.z && (!next || g.z > next.z)) next = g;
     }
     course.next = next; // cockpit compass reads it
+    if (next && !seen.has(next.kind)) {
+      seen.add(next.kind);
+      const k = KINDS[next.kind];
+      if (k.intro && course.onIntro) course.onIntro(k.intro, k.hex);
+    }
     const dist = -cam.z;
     for (const g of gates) {
-      if (g.z > cam.z + 260) spawnGate(g, front - gateGap(dist), dist);
+      if (g.z > cam.z + 260) { spawnGate(g, front.z - gateGap(dist), dist, front); front = g; }
       g.flash = Math.max(0, g.flash - dt * 2);
+      const K = KINDS[g.kind], sh = K.shape;
+      if (K.move) K.move(g, dt);
       const cr = g.r;
       const isNext = g === next;
+      const ca = Math.cos(g.ang), sa = Math.sin(g.ang);
+      // kinds keep their own colour; plain rings keep the old accent-on-next
+      const live = g.kind === "ring" && isNext ? PF.PAL.accent : K.col;
+      const pulse = g.kind === "boost" ? 0.85 + 0.3 * Math.sin(stT * 6) : 1;
       for (let i = 0; i < GATE_PTS; i++) {
         const p = g.lo + i, j = p * 3;
-        const wx = g.x + ring[i * 2] * cr, wy = g.y + ring[i * 2 + 1] * cr;
-        if (!cam.project(wx, wy, g.z)) {
+        const role = sh.role[i];
+        let ux = sh.xy[i * 2], uy = sh.xy[i * 2 + 1];
+        if (role === 3) { uy = ux * sa; ux *= ca; }
+        if (!cam.project(g.x + ux * cr, g.y + uy * cr, g.z)) {
           home[j] = -5e3; home[j + 1] = -5e3; home[j + 2] = 0;
           snap[p] = 1;
           continue;
@@ -534,10 +678,10 @@ export function createCourse(field, cam, PF, layers) {
         home[j + 2] = Math.max(o[2], -4); // far gates stay readable rings
         if (snapMode) snap[p] = 1;
         const f = g.flash;
-        const guide = i >= 124;
-        const c = f > 0 ? PF.PAL.accent : guide || isNext ? PF.PAL.accent : g.state === 0 ? PF.PAL.sky : PF.PAL.dim;
-        const b = f > 0 ? 1.7 : guide ? 1.3 : isNext ? 1.3 : g.state === 0 ? 0.95 : 0.4;
-        size[p] = f > 0 ? 1.5 : guide || isNext ? 1.3 : g.state === 0 ? 1.05 : 0.7;
+        const guide = role === 2, bar = role === 3 && g.state === 0;
+        const c = f > 0 ? PF.PAL.accent : bar ? BAR : guide ? PF.PAL.accent : g.state === 0 ? live : PF.PAL.dim;
+        const b = f > 0 ? 1.7 : bar ? 1.45 : guide ? 1.3 : g.state !== 0 ? 0.4 : (isNext ? 1.3 : 0.95) * pulse;
+        size[p] = f > 0 ? 1.5 : bar ? 1.5 : guide || isNext ? 1.3 : g.state === 0 ? 1.05 : 0.7;
         hcol[j] = c[0] * b; hcol[j + 1] = c[1] * b; hcol[j + 2] = c[2] * b;
       }
     }
@@ -689,12 +833,13 @@ export function createCourse(field, cam, PF, layers) {
       const k = rocks[ri];
       k.spin += k.spinV * dt;
       const cs = Math.cos(k.spin), sn = Math.sin(k.spin);
-      if (dist > 2500 && ri < rockBudget && (k.dead || k.z > cam.z + 200))
+      if (k.rub) { if (k.z > cam.z + 200) k.dead = true; }
+      else if (dist > 2500 && ri < rockBudget && (k.dead || k.z > cam.z + 200))
         spawnRock(k, cam.z - 1400 - rnd() * 3200, dist);
-      for (let i = 0; i < ROCK_PTS; i++) {
+      for (let i = 0; i < k.n; i++) {
         const p = k.lo + i, j = p * 3;
         if (k.dead) { homed[p] = 0; size[p] = 0; continue; }
-        size[p] = 1.1;
+        size[p] = k.rub ? 1.25 : 1.1;
         const bx = k.body[i * 3] * cs - k.body[i * 3 + 2] * sn;
         const bz = k.body[i * 3] * sn + k.body[i * 3 + 2] * cs;
         const wx = k.x + bx * k.r, wy = k.y + k.body[i * 3 + 1] * k.r, wz = k.z + bz * k.r;
@@ -707,9 +852,11 @@ export function createCourse(field, cam, PF, layers) {
         home[j] = o[0]; home[j + 1] = o[1];
         home[j + 2] = Math.max(o[2], -4);
         if (snapMode) snap[p] = 1;
-        hcol[j] = PF.PAL.mist[0] * 0.55;
-        hcol[j + 1] = PF.PAL.mist[1] * 0.55;
-        hcol[j + 2] = PF.PAL.mist[2] * 0.62;
+        // rubble runs warmer so a field reads as one body of debris
+        const rc = k.rub ? RUBC : PF.PAL.mist;
+        hcol[j] = rc[0] * 0.55;
+        hcol[j + 1] = rc[1] * 0.55;
+        hcol[j + 2] = rc[2] * 0.62;
       }
     }
   };

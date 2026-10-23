@@ -25,7 +25,11 @@ export function createCamera(PF) {
     levelT: 0, // seconds since last roll input - drives auto-straighten
     vr: [1, 0, 0], vu: [0, 1, 0], vf: [0, 0, -1], // chase view basis (lags)
     visor: 0, // cockpit counter-roll shown by deck/reticle (self-levels)
+    surgeT: 0, // boost-gate surge: seconds the boost cap stays lifted
   };
+  // boost gate: scale velocity and hold the boost cap open briefly so the
+  // kick survives the speed clamp
+  cam.kick = (t, k) => { cam.surgeT = t; cam.vx *= k; cam.vy *= k; cam.vz *= k; };
 
   const TURN = 1.55, ROLL = 2.3, ACCEL = 320, STRAFE = 250, VERT = 250;
   const CAP = 640, BCAP = 1450, DRAG = 0.42;
@@ -128,7 +132,8 @@ export function createCamera(PF) {
     const d = Math.exp(-drag * dt);
     cam.vx *= d; cam.vy *= d; cam.vz *= d;
     const sp2 = cam.vx * cam.vx + cam.vy * cam.vy + cam.vz * cam.vz;
-    const cap = (cam.boosting ? BCAP : CAP) * cam.diff * cam.capK;
+    cam.surgeT = Math.max(0, cam.surgeT - dt);
+    const cap = (cam.boosting || cam.surgeT > 0 ? BCAP : CAP) * cam.diff * cam.capK;
     if (sp2 > cap * cap) {
       const s = cap / Math.sqrt(sp2);
       cam.vx *= s; cam.vy *= s; cam.vz *= s;
@@ -140,7 +145,7 @@ export function createCamera(PF) {
     cam.z += cam.vz * dt;
 
     // boost + raw speed widen the lens: near field sweeps outward faster
-    const kick = cam.boosting ? 1 : cam.speedK * 0.55;
+    const kick = cam.boosting || cam.surgeT > 0 ? 1 : cam.speedK * 0.55;
     cam.fovK += (kick - cam.fovK) * Math.min(1, dt * 4);
     cam.f = cam.fBase * (1 - cam.fovK * 0.18);
 

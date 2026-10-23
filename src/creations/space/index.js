@@ -187,6 +187,7 @@ export function createSpace(field, PF, mods = {}) {
     },
   });
   const world = { ent, course, feed: hud.feed, log: hud.log }; // feed: killfeed, log: story lines
+  course.onIntro = (text, col) => hud.flash(text, 2.6, col); // first sighting of each gate kind
 
   // snap tracking: teleports rigid layers every frame (crisp, no spring lag).
   // spring mode lets homing smooth camera motion. T toggles, persisted.
@@ -345,7 +346,7 @@ export function createSpace(field, PF, mods = {}) {
       // aim at the nearest pending gate ahead; fall back to the corridor
       let tx = course.trackX(cam.z - 700), ty = course.trackY(cam.z - 700), tz = cam.z - 700;
       for (const g of course.gates)
-        if (g.state === 0 && g.z < cam.z - 30 && g.z > tz) { tz = g.z; tx = g.x; ty = g.y; }
+        if (g.state === 0 && g.z < cam.z - 30 && g.z > tz) { tz = g.z; tx = g.ax; ty = g.ay; }
       const pull = Math.min(1, dt * (cam.z - tz < 400 ? 5 : 1.6));
       cam.x += (tx - cam.x) * pull;
       cam.y += (ty - cam.y) * pull;
@@ -437,6 +438,7 @@ export function createSpace(field, PF, mods = {}) {
         run.score += pts;
         run.combo++;
         au.sfx("gate");
+        if (ev.kind === "boost") { cam.boost = 1; cam.kick(1.3, 1.7); }
         hud.flash(`gate +${pts}`, 0.8);
         if (run.phase === "race" && ++run.gatesPassed % 6 === 0) startFight();
       } else if (ev.type === "miss") {
