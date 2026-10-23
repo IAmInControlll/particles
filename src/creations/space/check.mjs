@@ -14,6 +14,20 @@ const BASE = `http://localhost:${process.env.PORT || 8321}`;
 const OUT = path.join(root, "shots");
 mkdirSync(OUT, { recursive: true });
 
+const CANOPY = `(() => {
+      const s = __space, f = s.field, c = document.getElementById("deck");
+      const k = c.width / innerWidth, a = c.getContext("2d").getImageData(0, 0, c.width, c.height).data;
+      let live = 0, onHull = 0;
+      for (let p = 0; p < f.homed.length; p++) {
+        if (!f.homed[p] || !f.size[p]) continue;
+        const x = f.home[p * 3], y = f.home[p * 3 + 1];
+        if (x < 0 || y < 0 || x >= innerWidth || y >= innerHeight) continue;
+        live++;
+        if (a[(((y * k) | 0) * c.width + ((x * k) | 0)) * 4 + 3] > 200) onHull++;
+      }
+      return { ...s.deck.fill(2), live, onHull };
+    })()`;
+
 // steps: [ms] wait | ["shot", name] | ["key", code, ms] hold |
 // ["eval", js] run js in page | ["probe", name, js] capture js value
 const SCEN = {
@@ -534,6 +548,45 @@ const SCEN = {
     })()`],
     [350],
     ["shot", "picktags"],
+  ],  // canopy-fill: each hull mid-flight (gates ahead). Probes deck.fill()
+  // (glass %, mask-vs-paint disagreement, top-left comms zone glass) and
+  // onHull = live homed particles whose home sits on an opaque deck
+  // pixel - the cull mask should keep that at ~0; overlay text (wreck
+  // marker label, story log) also counts, so a few stray hits are those.
+  "canopy-fill": [
+    ["goto", "?ship=kestrel&view=cockpit"], [2500],
+    ["eval", "window.__space.auto = true"],
+    [5000],
+    ["probe", "kestrel", CANOPY],
+    ["shot", "canopy-kestrel"],
+    ["goto", "?ship=dart&view=cockpit"], [2500],
+    ["eval", "window.__space.auto = true"],
+    [5000],
+    ["probe", "dart", CANOPY],
+    ["shot", "canopy-dart"],
+    ["goto", "?ship=mule&view=cockpit"], [2500],
+    ["eval", "window.__space.auto = true"],
+    [5000],
+    ["probe", "mule", CANOPY],
+    ["shot", "canopy-mule"],
+    // tl is the comms-box zone: with the story log text cleared it
+    // should read as pure glass
+    ["eval", "__space.world.log.length = 0"], [200],
+    ["probe", "tlNoLog", "__space.deck.fill(2).tl"],
+    // glare paints under the near layer: aim so the sun sits behind the
+    // left pillar - the bloom must stop at the pillar edge
+    ["goto", "?ship=kestrel&view=cockpit"], [2000],
+    ["eval", `(() => {
+      const s = __space, S = s.course.SUN;
+      s.auto = false;
+      s.cam.pitch = Math.asin(S[1]) + 0.12;
+      s.cam.yaw = Math.atan2(-S[0], -S[2]) - 0.62;
+      s.cam.yv = s.cam.pv = s.cam.rv = 0;
+      return 1;
+    })()`],
+    [900],
+    ["probe", "glareSun", "[__space.course.sunVis, __space.course.sunX | 0, __space.course.sunY | 0]"],
+    ["shot", "canopy-glare"],
   ],
 };
 
