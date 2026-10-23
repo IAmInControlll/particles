@@ -534,3 +534,20 @@ What changed:
   same arc) + 13 + arrow 78 + beam 16, exterior 273 (was 267).
 - check.mjs `holo-dash` / `holo-portrait` / `holo-chase`; new
   `["viewport", w, h]` step.
+
+## Stars at infinity, carrier, chase strip, 3D compass (session 11)
+
+- Far stars (75% of the stars layer) are baked directions on a celestial
+  sphere, projected by direction only - zero drift flying straight; the
+  rest are mood-tinted near dust in the old tunnel. Band plane lives in
+  sky.js (`sky.band`). Layer shares: ent 19%, planets 17%, stars 24%.
+- Carrier ~938 pts with role table (plates, edges, windows, bays, lights),
+  back-face culled, distance-scaled sprites; pods launch from `lm.bay`.
+  Still slightly translucent against bright nebula up close (no sky mask).
+- Chase strip: COM text fits its cell, deck.cull parks world homes in the
+  strip band, 28px gutter clears #hub.
+- Compass: literal 3D arrow (no tilt) - cone head, shaft, fins, depth-scaled
+  size, hot tip / cool tail. Reference frame on the deck canvas via
+  `deck.pad.seg/dot`: `?compass=stalk` (default, Elite-style shadow +
+  stalk on the ship's level plane) or `?compass=ball` (gimbal sphere).
+  Stalk disc reads weakly in chase view (camera nearly level).
