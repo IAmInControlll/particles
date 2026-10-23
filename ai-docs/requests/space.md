@@ -510,3 +510,27 @@ What changed:
 - Open: chase-view HUD strip (COM text overflows into radar, particles
   draw over the strip, INV overlaps the home link); the derelict reads
   thin in close cutscene shots.
+
+## Holo compass on the dash (session 10)
+
+- The relay compass left open glass for a projector pad on each dash
+  (`frames.js` `pad: {x, y, r}`, on the coaming lip at x -0.17, left of
+  centre so the arrow clears the killfeed). deck.js paints the collar and
+  lens, draws the live glow plus a `RLY 1.2k` range readout, and exposes
+  `deck.pad` = {on, lit, x, y, r, ux, uy, aim, rng, tint}: screen centre
+  after sway/roll/shake, the rolled pad-up vector, and the state tint
+  (cyan, green when lined up, amber/red pulse when behind). index.js now
+  runs `deck.frame` before `cockpit.frame` so the pad is current.
+- cockpit.js inverse-projects a point above the pad to view depth 150
+  and builds the arrow there in 3D. The relay direction is re-expressed
+  in the view basis with forward pitched up 0.8 rad, so "ahead" points
+  up-screen instead of collapsing tail-on; the flat arrow turns about its
+  axis to face the eye. Table roles: head edge (leading-edge weight),
+  head fill, shaft rails, projector beam motes. Scanline sweeps tail to
+  tip; per-point flicker. Chase keeps the floating arrow (new look, no
+  beam); dock parks it with the rest of the cockpit layer.
+- Budget: desktop layer 1500 = motes 180 + reticle 13 + arrow 114 + beam
+  30, exterior 1163. Mobile layer 500 = motes 120 (20-pt motes over the
+  same arc) + 13 + arrow 78 + beam 16, exterior 273 (was 267).
+- check.mjs `holo-dash` / `holo-portrait` / `holo-chase`; new
+  `["viewport", w, h]` step.
