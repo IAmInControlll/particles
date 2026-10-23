@@ -7,7 +7,10 @@
 <link rel="icon" href="data:,">
 <style>
   html, body { margin: 0; height: 100%; overflow: hidden; background: #030409; }
-  canvas.pf-gl { position: fixed; inset: 0; width: 100vw; height: 100vh; }
+  /* plus-lighter: particles add onto the painted sky (sky.js) instead of
+     compositing over it - dim sprites would otherwise punch dark holes */
+  canvas.pf-gl { position: fixed; inset: 0; width: 100vw; height: 100vh;
+    mix-blend-mode: plus-lighter; }
   #deck { position: fixed; inset: 0; width: 100vw; height: 100vh;
     z-index: 5; pointer-events: none; }
   /* comms box + cutscene letterbox ride ABOVE the GL canvas (z6) */

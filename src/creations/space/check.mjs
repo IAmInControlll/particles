@@ -761,6 +761,152 @@ const SCEN = {
     })()`],
     ["shot", "story-dup"],
   ],
+  // world-gates: stage each gate kind as the next gate, park the camera
+  // just short of it on its axis, screenshot. rocks parks at the previous
+  // gate so the rubble stretch fills the view.
+  "world-gates": [
+    ["reload"], [1500], ["eval", "window.__space.auto = true"], [2500],
+    ["eval", `window.__stage = (id) => {
+      const s = __space, c = s.course;
+      s.auto = false; s.keys.KeyW = false;
+      s.cam.vx = s.cam.vy = s.cam.vz = 0;
+      s.cam.yaw = s.cam.pitch = s.cam.roll = 0; s.cam.yv = s.cam.pv = s.cam.rv = 0;
+      s.run.invuln = 5;
+      const pend = c.gates.filter(g => g.state === 0 && g.z < s.cam.z - 60).sort((a, b) => b.z - a.z);
+      const a = pend[0], b = pend[1];
+      const g = id === "rocks" ? b : a;
+      c.setKind(g, id, a);
+      const back = id === "rocks" ? a.z + 120 : g.z + 300;
+      s.cam.x = id === "rocks" ? a.bx : g.bx; s.cam.y = (id === "rocks" ? a.by : g.by) + 8; s.cam.z = back;
+      s.cam.update(0.016, s.keys);
+      return { kind: g.kind, r: g.r | 0, d: (s.cam.z - g.z) | 0 };
+    }; 1`],
+    ["probe", "drift", "__stage('drift')"], [700], ["shot", "world-gate-drift"],
+    ["probe", "driftMoved", "(() => { const g = __space.course.next; return +Math.hypot(g.x - g.bx, g.y - g.by).toFixed(1); })()"],
+    ["probe", "spin", "__stage('spin')"], [700], ["shot", "world-gate-spin"],
+    ["probe", "boost", "__stage('boost')"], [700], ["shot", "world-gate-boost"],
+    ["probe", "rocks", "__stage('rocks')"], [700], ["shot", "world-gate-rocks"],
+    ["probe", "rubbleLive", "__space.course.rocks.filter(k => !k.dead && k.z < __space.cam.z).length"],
+  ],
+  // world-spin: fly straight into a frozen horizontal crossbar (clip,
+  // a life lost), then through an open half of the next spinner (pass)
+  "world-spin": [
+    ["reload"], [1500], ["eval", "window.__space.auto = true"], [2500],
+    ["eval", `window.__spin = (dy) => {
+      const s = __space, c = s.course;
+      s.auto = false; s.run.invuln = 0; s.run.phase = "race";
+      s.cam.yaw = s.cam.pitch = s.cam.roll = 0; s.cam.yv = s.cam.pv = s.cam.rv = 0;
+      const g = c.gates.filter(g => g.state === 0 && g.z < s.cam.z - 60).sort((a, b) => b.z - a.z)[0];
+      c.setKind(g, "spin");
+      g.spinV = 0; g.ang = 0;
+      s.cam.x = g.x; s.cam.y = g.y + dy * g.r; s.cam.z = g.z + 160;
+      s.cam.vx = s.cam.vy = 0; s.cam.vz = -500;
+      window.__l0 = s.run.lives; window.__p0 = s.run.gatesPassed; window.__sg = g;
+      return { r: g.r | 0, lives: s.run.lives };
+    }; 1`],
+    ["probe", "barSetup", "__spin(0.02)"], [900],
+    ["probe", "barClip", "({lives: __space.run.lives, lost: window.__l0 - __space.run.lives, gateState: window.__sg.state})"],
+    ["eval", "__space.run.invuln = 0"],
+    ["probe", "gapSetup", "__spin(0.45)"], [900],
+    ["probe", "gapPass", "({lost: window.__l0 - __space.run.lives, passed: __space.run.gatesPassed - window.__p0, gateState: window.__sg.state})"],
+  ],
+  // world-boost: drain boost, cruise at cap into a gold gate - pass
+  // refills boost and the surge lifts speed past the normal cap
+  "world-boost": [
+    ["reload"], [1500], ["eval", "window.__space.auto = true"], [2500],
+    ["eval", "__space.auto = false"], [100],
+    ["eval", `(() => {
+      const s = __space, c = s.course;
+      s.auto = false; s.run.invuln = 0;
+      s.cam.yaw = s.cam.pitch = s.cam.roll = 0; s.cam.yv = s.cam.pv = s.cam.rv = 0;
+      const g = c.gates.filter(g => g.state === 0 && g.z < s.cam.z - 60).sort((a, b) => b.z - a.z)[0];
+      c.setKind(g, "boost");
+      s.cam.x = g.x; s.cam.y = g.y; s.cam.z = g.z + 500;
+      s.cam.vx = s.cam.vy = 0; s.cam.vz = -600;
+      s.cam.boost = 0.2; s.keys.KeyW = true;
+      window.__bg = g; window.__vmax = 0; window.__evs = [];
+      const ck = c.check; c.check = (z) => { const e = ck(z); if (e) __evs.push([e.type, e.kind, s.cam.speed | 0, s.run.lives]); return e; };
+      window.__vt = setInterval(() => { if (__evs.length) window.__vmax = Math.max(window.__vmax, s.cam.speed); }, 30);
+      return 1;
+    })()`],
+    [200],
+    ["probe", "preBoost", "({boost: +__space.cam.boost.toFixed(2), speed: __space.cam.speed | 0})"],
+    [1100],
+    ["probe", "postBoost", "({boost: +__space.cam.boost.toFixed(2), events: __evs, peakSpeed: window.__vmax | 0, surgeT: +__space.cam.surgeT.toFixed(2)})"],
+    ["eval", "clearInterval(window.__vt); __space.keys.KeyW = false"],
+  ],
+  // world-mix: long autopilot run stepped through every campaign stage
+  // via the game's own leg hooks; probes the kinds rolled per stage
+  "world-mix": [
+    ["reload"], [1500], ["eval", "window.__space.auto = true"],
+    ["eval", `(() => {
+      const c = __space.course, ck = c.check, ev = window.__ev = {};
+      c.check = (z) => { const e = ck(z); if (e) { const k = e.type + ":" + e.kind; ev[k] = (ev[k] || 0) + 1; } return e; };
+      return 1;
+    })()`],
+    [18000],
+    ["eval", "__space.course.respawnLm(1)"], [18000],
+    ["eval", "__space.course.respawnLm(2)"], [18000],
+    ["eval", "__space.course.finishStory()"], [18000],
+    ["probe", "mix", "__space.course.mix"],
+    ["probe", "events", "window.__ev"],
+    ["probe", "run", "({lives: __space.run.lives, dist: __space.run.dist | 0, gates: __space.run.gatesPassed})"],
+  ],
+  // world-sky: the painted sky + giant from several headings, then the
+  // leg-2/3 moods after the crossfade (5s) and giant re-anchor (~5s)
+  "world-sky": [
+    ["reload"], [1500],
+    ["eval", `window.__look = (v) => {
+      const s = __space;
+      s.auto = false; s.keys.KeyW = false;
+      s.cam.vx = s.cam.vy = s.cam.vz = 0; s.cam.yv = s.cam.pv = s.cam.rv = 0; s.cam.roll = 0;
+      s.cam.pitch = Math.asin(Math.max(-1, Math.min(1, v[1])));
+      s.cam.yaw = Math.atan2(-v[0], -v[2]);
+      s.cam.update(0.016, s.keys);
+      return 1;
+    }; window.__toGiant = () => { const s = __space, g = s.course.sky.giant;
+      const d = [g.x - s.cam.x, g.y - s.cam.y, g.z - s.cam.z], l = Math.hypot(...d);
+      return __look(d.map(x => x / l)); }; 1`],
+    ["eval", "__look([0, 0, -1])"], [700], ["shot", "world-sky-fwd"],
+    ["eval", "__look([-1, 0.05, 0])"], [700], ["shot", "world-sky-left"],
+    ["eval", "__look([1, 0.05, 0])"], [700], ["shot", "world-sky-right"],
+    ["eval", "__look(__space.course.SUN)"], [700], ["shot", "world-sky-sun"],
+    ["eval", "__toGiant()"], [700],
+    ["probe", "giant", "({vis: __space.course.sky.giantVis, px: __space.course.sky.giantPx | 0, mood: __space.course.sky.mood})"],
+    ["shot", "world-sky-giant"],
+    ["eval", "__look([0, 0, 1])"], [700], ["shot", "world-sky-back"],
+    ["eval", "__space.course.respawnLm(1); __look([0, 0, -1])"], [11000],
+    ["eval", "__toGiant()"], [700],
+    ["probe", "giant2", "({vis: __space.course.sky.giantVis, px: __space.course.sky.giantPx | 0, mood: __space.course.sky.mood})"],
+    ["shot", "world-sky-leg2-giant"],
+    ["eval", "__look([0.3, 0.1, -1])"], [700], ["shot", "world-sky-leg2-fwd"],
+    ["eval", "__space.course.respawnLm(2)"], [11000], ["eval", "__toGiant()"], [700], ["shot", "world-sky-leg3-giant"],
+    // chase view: the painted body and its particle limb must stay registered
+    ["goto", "?ship=kestrel&view=chase"], [2000],
+    ["eval", `(() => { const s = __space, g = s.course.sky.giant;
+      const d = [g.x - s.cam.x, g.y - s.cam.y, g.z - s.cam.z], l = Math.hypot(...d);
+      s.cam.pitch = Math.asin(d[1] / l) + 0.12; s.cam.yaw = Math.atan2(-d[0], -d[2]); return 1; })()`],
+    [1500], ["shot", "world-sky-chase"],
+    ["eval", "localStorage.removeItem('space.view')"],
+  ],
+  // world-perf: mean rAF interval and mean game.frame JS time over ~4s of
+  // autopilot (headless rAF is vsync-capped, so frameMs is the sharper signal)
+  "world-perf": [
+    ["reload"], [1500], ["eval", "window.__space.auto = true"], [2500],
+    ["eval", `(() => {
+      const f = __pf, g = f.frame, m = window.__perf = { js: 0, n: 0, raf: [], last: 0 };
+      f.frame = (T, dt) => { const t0 = performance.now(); g(T, dt); m.js += performance.now() - t0; m.n++; };
+      const tick = (t) => { if (m.last) m.raf.push(t - m.last); m.last = t; if (m.raf.length < 400) requestAnimationFrame(tick); };
+      requestAnimationFrame(tick);
+      return 1;
+    })()`],
+    [4000],
+    ["probe", "perf", `(() => {
+      const m = window.__perf, r = m.raf.slice().sort((a, b) => a - b);
+      return { frames: m.n, frameMs: +(m.js / m.n).toFixed(2),
+        rafMean: +(r.reduce((a, b) => a + b, 0) / r.length).toFixed(2), rafP95: +r[(r.length * 0.95) | 0].toFixed(2) };
+    })()`],
+  ],
 };
 
 // combat-lead: a fighter strafes at a known velocity (steering overridden each

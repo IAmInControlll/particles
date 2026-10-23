@@ -24,8 +24,8 @@ export function createSpace(field, PF, mods = {}) {
     cockpit: { lo: 0, hi: cut(0.10) },
     ent: { lo: cut(0.10), hi: cut(0.36) },
     course: { lo: cut(0.36), hi: cut(0.55) },
-    planets: { lo: cut(0.55), hi: cut(0.68) }, // sun + derelict + planets
-    stars: { lo: cut(0.68), hi: cut(0.89) },
+    planets: { lo: cut(0.55), hi: cut(0.70) }, // sun + derelict + planets + giant
+    stars: { lo: cut(0.70), hi: cut(0.89) },
     fx: { lo: cut(0.89), hi: N },
   };
   // world layers sit under the hull backing - cull keeps them in the panes
@@ -199,6 +199,7 @@ export function createSpace(field, PF, mods = {}) {
     },
   });
   const world = { ent, course, feed: hud.feed }; // feed: score popups under the reticle
+  course.onIntro = (text) => hud.flash(text, 2.6); // first sighting of each gate kind
 
   // snap tracking: teleports rigid layers every frame (crisp, no spring lag).
   // spring mode lets homing smooth camera motion. T toggles, persisted.
@@ -432,7 +433,7 @@ export function createSpace(field, PF, mods = {}) {
       // aim at the nearest pending gate ahead; fall back to the corridor
       let tx = course.trackX(cam.z - 700), ty = course.trackY(cam.z - 700), tz = cam.z - 700;
       for (const g of course.gates)
-        if (g.state === 0 && g.z < cam.z - 30 && g.z > tz) { tz = g.z; tx = g.x; ty = g.y; }
+        if (g.state === 0 && g.z < cam.z - 30 && g.z > tz) { tz = g.z; tx = g.ax; ty = g.ay; }
       const pull = Math.min(1, dt * (cam.z - tz < 400 ? 5 : 1.6));
       cam.x += (tx - cam.x) * pull;
       cam.y += (ty - cam.y) * pull;
@@ -454,6 +455,7 @@ export function createSpace(field, PF, mods = {}) {
         run.score += pts;
         run.combo++;
         au.sfx("gate");
+        if (ev.kind === "boost") { cam.boost = 1; cam.kick(1.3, 1.7); }
         hud.pop(`${RELAY[ev.kind] || "relay"} lit +${pts}`);
         if (run.phase === "race" && ++run.gatesPassed % 6 === 0) startFight();
       } else if (ev.type === "miss") {
