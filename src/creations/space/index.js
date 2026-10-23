@@ -87,6 +87,8 @@ export function createSpace(field, PF, mods = {}) {
     gatesPassed: 0,
     wave: 0,
     kills: 0,
+    waveSize: 0,  // hostiles fielded this wave
+    waveKills: 0, // of those, destroyed (rams count) - escapees forfeit the bonus
     legs: 0,       // rescue legs completed
     wreckDist: 0, // live distance to the derelict (0 = no live objective)
     storyDone: false, // campaign finished - the run goes endless
@@ -157,6 +159,7 @@ export function createSpace(field, PF, mods = {}) {
     if (run.wave >= 3 && (run.wave % 4 === 0 || PF.rnd() < 0.25))
       roster[(PF.rnd() * roster.length) | 0] = "heavy";
     for (const kind of roster) ent.spawnShip(kind);
+    run.waveSize = ent.countAlive(); run.waveKills = 0;
     hud.flash(n > 1 ? `${n} hostiles inbound` : "hostile inbound", 1.6);
   }
 
@@ -166,6 +169,7 @@ export function createSpace(field, PF, mods = {}) {
     onKill: (s) => {
       run.score += s.score;
       run.kills++;
+      run.waveKills++;
       au.sfx("kill");
       hud.flash(`${s.kind} +${s.score}`, 1, "#e85444");
     },
@@ -263,6 +267,7 @@ export function createSpace(field, PF, mods = {}) {
     run.score = 0; run.combo = 0; run.lives = 5; run.hull = run.hullMax; run.shield = 0;
     run.dist = 0; run.hostiles = 0; run.gatesPassed = 0; run.wave = 0;
     run.kills = 0; run.invuln = 0; run.jitter = 0;
+    run.waveSize = 0; run.waveKills = 0;
     run.legs = 0; run.wreckDist = 0; run.storyDone = false;
     legSeq = -1; beats = 0; hud.log.length = 0;
     cam.x = cam.y = cam.z = 0;
@@ -395,6 +400,7 @@ export function createSpace(field, PF, mods = {}) {
           ent.spawnShip("heavy");
           ent.spawnShip("drone");
           ent.spawnShip("drone");
+          run.waveSize = ent.countAlive(); run.waveKills = 0;
           run.phase = "fight";
           au.sfx("wave");
           hud.flash("the pack alpha guards the wreck", 2.2, "#e85444");
@@ -447,8 +453,10 @@ export function createSpace(field, PF, mods = {}) {
       run.hostiles = ent.countAlive();
       if (run.hostiles === 0) {
         run.phase = "race";
-        run.score += 200;
-        hud.flash("wave clear +200", 1.4);
+        if (run.waveKills >= run.waveSize) {
+          run.score += 200;
+          hud.flash("wave clear +200", 1.4);
+        } else hud.flash(`${run.waveSize - run.waveKills} broke off - no clear bonus`, 1.4);
       }
     }
     // guns always hot - space fires in race too, there's just nothing

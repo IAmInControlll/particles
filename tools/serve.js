@@ -1,6 +1,7 @@
 const http = require("http");
 const fs = require("fs");
 const path = require("path");
+const PORT = +process.env.PORT || 8321;
 const types = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".json": "application/json" };
 http
   .createServer((req, res) => {
@@ -11,4 +12,4 @@ http
       res.end(data);
     });
   })
-  .listen(8321, () => console.log("http://localhost:8321"));
+  .listen(PORT, () => console.log(`http://localhost:${PORT}`));
