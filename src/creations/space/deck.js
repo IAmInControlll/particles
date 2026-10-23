@@ -585,19 +585,6 @@ export function createDeck(cam, field) {
       g.globalAlpha = 1;
     }
 
-    // story log: persistent comms chatter, top-left, oldest on top -
-    // the run reads as a story instead of disconnected popups
-    if (world && world.log) {
-      let ly = 26;
-      for (const e of world.log) {
-        if (e.t > 45) continue;
-        g.globalAlpha = Math.min(1, e.t * 2, (45 - e.t) / 4) * 0.9 * st.blink;
-        text(g, e.text, 16, ly, 11, e.col || "rgba(140,175,168,.9)", "left", 3);
-        ly += 15;
-      }
-      g.globalAlpha = 1;
-    }
-
     // wreck marker: a screen pin for the objective - bracket + range
     // in frame, an edge arrow when it is off-screen or behind
     {
