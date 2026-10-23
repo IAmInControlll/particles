@@ -475,29 +475,29 @@ const SCEN = {
     ["probe", "sunXY", "[__space.course.sunX | 0, __space.course.sunY | 0]"],
     ["shot", "warcry-glare"],
   ],
-  // story: the derelict is the mission - pin it 500wu ahead and let
-  // autopilot dock; run all three legs and confirm the campaign ends
-  // into endless mode. Story log lines accumulate top-left.
+  // story: the derelict is the mission - pin it ahead, let autopilot dock,
+  // skip each cutscene, and confirm the campaign ends into endless mode
   story: [
     ["reload"], [2000], ["eval", "window.__space.auto = true"], [1500],
     ["probe", "wreck0", "__space.run.wreckDist | 0"],
-    ["probe", "log0", "__space.world.log.length"],
-    ["eval", `window.__pin = () => {
+    ["probe", "onAir0", "__space.comms.cur()"],
+    ["eval", `window.__pin = (d = 500) => {
       const s = __space, lm = s.course.landmark;
-      lm.x = s.cam.x + s.cam.fwd[0] * 500;
-      lm.y = s.cam.y + s.cam.fwd[1] * 500;
-      lm.z = s.cam.z + s.cam.fwd[2] * 500;
+      lm.x = s.cam.x + s.cam.fwd[0] * d;
+      lm.y = s.cam.y + s.cam.fwd[1] * d;
+      lm.z = s.cam.z + s.cam.fwd[2] * d;
       window.__s0 = s.run.score;
       return 1;
     }; __pin()`],
-    [2500],
-    ["probe", "leg1", "({legs: __space.run.legs, dScore: __space.run.score - window.__s0, hull: __space.run.hull, wreckNext: __space.run.wreckDist | 0})"],
-    ["eval", "__pin()"], [2500],
-    ["eval", "__pin()"], [400],
-    // leg-3 approach: the ambush should already be on scope
+    [1200], ["probe", "dock1", "__space.run.phase"],
+    ["key", "Enter", 60], [300],
+    ["probe", "leg1", "({phase: __space.run.phase, legs: __space.run.legs, souls: __space.run.souls, dScore: __space.run.score - window.__s0, wreckNext: __space.run.wreckDist | 0})"],
+    ["eval", "__pin()"], [1200], ["key", "Enter", 60], [300],
+    ["eval", "__pin(2500)"], [400],
+    // leg-3 approach: Orren's ambush should already be on scope
     ["probe", "ambush", "({phase: __space.run.phase, kinds: __space.ent.ships.filter(s => s.alive).map(s => s.kind)})"],
-    [2200],
-    ["probe", "done", "({legs: __space.run.legs, storyDone: __space.run.storyDone, wreckDist: __space.run.wreckDist, board: document.getElementById('over').style.display, escT: +__space.fx.escT().toFixed(1)})"],
+    ["eval", "__pin()"], [1200], ["key", "Enter", 60], [400],
+    ["probe", "done", "({legs: __space.run.legs, souls: __space.run.souls, storyDone: __space.run.storyDone, wreckDist: __space.run.wreckDist, board: document.getElementById('over').style.display, boomT: +__space.cine.boomT().toFixed(1), alive: __space.ent.countAlive(), phase: __space.run.phase})"],
     ["shot", "story-rescue"],
   ],
   thrust: [
@@ -608,6 +608,107 @@ const SCEN = {
       window.AudioContext = AC;
       return out;
     })()`],
+  ],
+  // story-dock: one dock played as a cutscene - letterbox, external eye,
+  // comms on air - then Enter skips back to flight with controls restored
+  "story-dock": [
+    ["reload"], [2500],
+    ["probe", "onAir", "__space.comms.cur()"],
+    ["shot", "story-comms"],
+    ["eval", `(() => {
+      const s = __space, lm = s.course.landmark;
+      lm.x = s.cam.x + s.cam.fwd[0] * 600 + s.cam.right[0] * 120;
+      lm.y = s.cam.y + s.cam.fwd[1] * 600;
+      lm.z = s.cam.z + s.cam.fwd[2] * 600 + s.cam.right[2] * 120;
+      return 1;
+    })()`],
+    [300],
+    ["probe", "docking", "({phase: __space.run.phase, eye: !!__space.cam.eye, shot: __space.cine.shot(), view: __space.view})"],
+    [1700], ["shot", "story-dock-a"],
+    [2200],
+    ["probe", "mid", "({phase: __space.run.phase, shot: __space.cine.shot(), t: +__space.cine.t().toFixed(1), onAir: __space.comms.cur(), escT: +__space.fx.escT().toFixed(1)})"],
+    ["shot", "story-dock-b"],
+    ["eval", "__space.keys.KeyW = false"],
+    ["key", "Enter", 60], [200],
+    ["probe", "skipped", "({phase: __space.run.phase, eye: __space.cam.eye, view: __space.view, invuln: +__space.run.invuln.toFixed(1), legs: __space.run.legs, souls: __space.run.souls, queued: __space.comms.queued()})"],
+    ["eval", "window.__v0 = __space.cam.speed"],
+    ["key", "KeyW", 900],
+    ["probe", "controls", "({before: window.__v0 | 0, after: __space.cam.speed | 0})"],
+    ["shot", "story-dock-after"],
+  ],
+  // story-finale: leg 3 from the ambush through the detonation to the end
+  // card, played in full (no skip)
+  "story-finale": [
+    ["reload"], [1500],
+    ["eval", `(() => {
+      const s = __space;
+      s.run.legs = 2; s.run.souls = 32;
+      s.course.respawnLm(2);
+      return 1;
+    })()`],
+    [600],
+    ["eval", `window.__pin = (d) => {
+      const s = __space, lm = s.course.landmark;
+      lm.x = s.cam.x + s.cam.fwd[0] * d + s.cam.right[0] * 150;
+      lm.y = s.cam.y + s.cam.fwd[1] * d;
+      lm.z = s.cam.z + s.cam.fwd[2] * d + s.cam.right[2] * 150;
+      return 1;
+    }; __pin(2600)`],
+    [300],
+    ["probe", "ambush", "({phase: __space.run.phase, kinds: __space.ent.ships.filter(s => s.alive).map(s => s.kind), onAir: __space.comms.cur()})"],
+    ["eval", "__pin(600)"], [200],
+    ["probe", "dock", "({phase: __space.run.phase, eye: !!__space.cam.eye})"],
+    [9900],
+    ["probe", "boom", "({t: +__space.cine.t().toFixed(1), boomT: +__space.cine.boomT().toFixed(2), shot: __space.cine.shot(), alive: __space.ent.countAlive(), onAir: __space.comms.cur()})"],
+    ["shot", "story-boom"],
+    [700], ["shot", "story-boom-b"],
+    [2900],
+    ["probe", "card", "({display: document.getElementById('over').style.display, text: document.getElementById('over').innerText})"],
+    ["shot", "story-card"],
+    [3000],
+    ["probe", "after", "({phase: __space.run.phase, storyDone: __space.run.storyDone, eye: __space.cam.eye, view: __space.view, souls: __space.run.souls, legs: __space.run.legs, wreckDist: __space.run.wreckDist, lmVisible: (() => { const lm = __space.course.landmark, f = window.__pf; let n = 0; for (let i = 0; i < lm.n; i++) if (f.size[lm.lo + i] > 0) n++; return n; })()})"],
+    [3500],
+    ["probe", "endless", "__space.comms.cur()"],
+  ],
+  // story-dup: every hud.flash and hud.pop text over a gate pass and a
+  // kill - no text may land in both channels
+  "story-dup": [
+    ["reload"], [1500],
+    ["eval", `(() => {
+      const s = __space, h = s.hud;
+      window.__msgs = { flash: [], pop: [], comms: [] };
+      const f = h.flash, p = h.pop, c = s.comms.say;
+      s.comms.say = (lines, now) => { for (const l of lines) __msgs.comms.push(l[1]); return c(lines, now); };
+      h.flash = (t, ...a) => { __msgs.flash.push(t); return f(t, ...a); };
+      h.pop = (t, ...a) => { __msgs.pop.push(t); return p(t, ...a); };
+      s.auto = true;
+      return 1;
+    })()`],
+    [7000],
+    ["eval", `(() => {
+      const s = __space;
+      s.auto = false; s.keys.KeyW = false;
+      s.ent.spawnShip("drone");
+      const sh = s.ent.ships.find(x => x.alive);
+      s.run.phase = "fight";
+      window.__pin2 = setInterval(() => {
+        if (!sh.alive) return;
+        sh.x = s.cam.x + s.cam.fwd[0] * 260; sh.y = s.cam.y + s.cam.fwd[1] * 260; sh.z = s.cam.z + s.cam.fwd[2] * 260;
+        sh.vx = sh.vy = sh.vz = 0;
+      }, 50);
+      return 1;
+    })()`],
+    ["key", "Space", 1500],
+    ["eval", "clearInterval(window.__pin2)"],
+    [300],
+    ["probe", "channels", `(() => {
+      const m = window.__msgs, both = m.flash.filter(t => m.pop.includes(t))
+        .concat(m.comms.filter(t => m.flash.includes(t) || m.pop.includes(t)));
+      return { flash: m.flash, pop: m.pop, comms: m.comms.length, both,
+        com: document.getElementById("hud-msg").textContent,
+        feed: __space.world.feed.map(e => e.text) };
+    })()`],
+    ["shot", "story-dup"],
   ],
 };
 

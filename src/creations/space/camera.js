@@ -158,12 +158,16 @@ export function createCamera(PF) {
   const EYE_B = 150, EYE_U = 42, EYE_TILT = -0.08;
   const eCt = Math.cos(EYE_TILT), eSt = Math.sin(EYE_TILT);
   const out = cam.out = [0, 0, 0];
+  // cam.eye: cutscene override {x, y, z, R, U, F} - a free render eye and
+  // basis; the ship (cam.x/y/z) keeps flying underneath it
+  cam.eye = null;
   cam.project = (wx, wy, wz) => {
-    let dx = wx - cam.x, dy = wy - cam.y, dz = wz - cam.z;
-    const R = cam.chase ? cam.vr : cam.right;
-    const U = cam.chase ? cam.vu : cam.up;
-    const F = cam.chase ? cam.vf : cam.fwd;
-    if (cam.chase) {
+    const E = cam.eye, chase = cam.chase && !E;
+    let dx = wx - (E ? E.x : cam.x), dy = wy - (E ? E.y : cam.y), dz = wz - (E ? E.z : cam.z);
+    const R = E ? E.R : chase ? cam.vr : cam.right;
+    const U = E ? E.U : chase ? cam.vu : cam.up;
+    const F = E ? E.F : chase ? cam.vf : cam.fwd;
+    if (chase) {
       dx += F[0] * EYE_B - U[0] * EYE_U;
       dy += F[1] * EYE_B - U[1] * EYE_U;
       dz += F[2] * EYE_B - U[2] * EYE_U;
@@ -171,7 +175,7 @@ export function createCamera(PF) {
     const vx = R[0] * dx + R[1] * dy + R[2] * dz;
     let vy = U[0] * dx + U[1] * dy + U[2] * dz;
     let vz = F[0] * dx + F[1] * dy + F[2] * dz;
-    if (cam.chase) {
+    if (chase) {
       const ty = vy * eCt - vz * eSt;
       vz = vy * eSt + vz * eCt;
       vy = ty;
