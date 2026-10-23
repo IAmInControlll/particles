@@ -64,16 +64,13 @@ const SCEN = {
     ["probe", "yvCoast", "+__space.cam.yv.toFixed(3)"],
   ],
   // level: free roll sticks while held AND after release (ship attitude
-  // persists) - only the visor counter-roll self-levels ~2s after input
+  // persists); the cockpit never counter-rolls (see cockpit-motion)
   level: [
     [1500],
     ["key", "KeyQ", 1500],
     ["probe", "rolled", "+(__space.cam.roll % 6.2832).toFixed(2)"],
-    [1200],
-    ["probe", "visorHeld", "+__space.cam.visor.toFixed(3)"],
-    [4200],
+    [5400],
     ["probe", "stillRolled", "+(__space.cam.roll % 6.2832).toFixed(2)"],
-    ["probe", "visorLevel", "+__space.cam.visor.toFixed(3)"],
   ],
   motion: [
     [2000], ["eval", "window.__space.auto = true"],
@@ -1314,6 +1311,28 @@ const holo3d = (mode) => [
   ["eval", "clearInterval(window.__sweep)"],
 ];
 SCEN.holo3d = [...holo3d("ball"), ...holo3d("stalk"), ["sheet", "space-holo3d-sheet.png"]];
+
+// cockpit-motion: hard strafe + turn + roll must never pull the hull off a
+// screen edge. EDGE counts see-through deck pixels on the bottom row and on
+// both side columns below the dash line (alpha < 200 = a gap).
+const EDGE = `(() => {
+  const c = document.getElementById("deck"), g = c.getContext("2d");
+  const W = c.width, H = c.height, y0 = (H * 0.78) | 0;
+  const row = g.getImageData(0, H - 2, W, 1).data;
+  const lft = g.getImageData(1, y0, 1, H - y0).data, rgt = g.getImageData(W - 2, y0, 1, H - y0).data;
+  const gaps = (d) => { let n = 0; for (let i = 3; i < d.length; i += 4) if (d[i] < 200) n++; return n; };
+  return { bottom: gaps(row), left: gaps(lft), right: gaps(rgt) };
+})()`;
+SCEN["cockpit-motion"] = [
+  ["goto", "?ship=kestrel&view=cockpit"], [2000],
+  ["probe", "rest", EDGE],
+  ["eval", "window.__keys = setInterval(() => { const k = __space.keys; k.KeyW = k.KeyD = k.ArrowLeft = k.KeyQ = k.KeyR = true; }, 30)"],
+  [1200], ["probe", "hard1", EDGE], ["shot", "cockpit-motion-a"],
+  ["eval", "clearInterval(window.__keys); const k = __space.keys; k.KeyD = k.ArrowLeft = k.KeyQ = k.KeyR = false; window.__keys = setInterval(() => { const k = __space.keys; k.KeyA = k.ArrowRight = k.ArrowUp = k.KeyE = k.KeyF = true; }, 30)"],
+  [1200], ["probe", "hard2", EDGE], ["shot", "cockpit-motion-b"],
+  ["eval", "clearInterval(window.__keys); for (const k in __space.keys) __space.keys[k] = false"],
+  ["eval", "__space.hit(1)"], [120], ["probe", "hit", EDGE],
+];
 
 const names = process.argv.slice(2);
 const which = names.length ? names : ["boot"];

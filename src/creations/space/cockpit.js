@@ -83,7 +83,7 @@ export function createCockpit(field, cam, PF, layer, pad) {
   }
 
   const shed = new Float32Array(N); // >0 = released, counts down
-  let swayX = 0, swayY = 0, moteA = 0, holoT = 0;
+  let moteA = 0, holoT = 0;
   // the layer tail [used, N) belongs to exterior.js (chase ship body) -
   // the frame loop and shed() only ever write [0, used)
   const OWN = MOTES * MOTE_PTS + S;
@@ -196,18 +196,8 @@ export function createCockpit(field, cam, PF, layer, pad) {
   cockpit.frame = (dt, run, world, chase) => {
     moteA += dt * 0.9;
     holoT += dt;
-    // inverse view-space velocity sway, smoothed
-    const vvx = cam.right[0] * cam.vx + cam.right[1] * cam.vy + cam.right[2] * cam.vz;
-    const vvy = cam.up[0] * cam.vx + cam.up[1] * cam.vy + cam.up[2] * cam.vz;
-    const k = Math.min(1, dt * 5);
-    swayX += (Math.max(-0.12, Math.min(0.12, -vvx * 0.0002)) - swayX) * k;
-    swayY += (Math.max(-0.12, Math.min(0.12, vvy * 0.0002)) - swayY) * k;
     const blink = run.invuln > 0 ? (Math.sin(run.invuln * 30) > 0 ? 0.35 : 1) : 1;
     const scale = Math.min(innerWidth, innerHeight) * 0.52;
-    // counter-roll caps at ~14deg and self-levels after input stops
-    // (cam.visor) - bank feel only, free spins don't corkscrew the view
-    const roll = cam.visor;
-    const cosr = Math.cos(roll), sinr = Math.sin(roll);
     const shx = cam.ox * 0.45 + (Math.random() - 0.5) * run.jitter * 14;
     const shy = cam.oy * 0.45 + (Math.random() - 0.5) * run.jitter * 14;
 
@@ -357,12 +347,11 @@ export function createCockpit(field, cam, PF, layer, pad) {
         }
         continue;
       }
-      const rx = bx * cosr - by * sinr, ry = bx * sinr + by * cosr;
-      // reticle: rolls with the counter-bank like the canopy does;
-      // dimmer in chase so the hull silhouette reads under it
+      // gunsight: collimated, so it stays on the bore line - no head sway,
+      // no counter-roll, only shake. Dimmer in chase so the hull reads under it
       const lum = (chase ? 0.85 : 1.45) * blink;
-      home[j] = cam.cx + rx * scale + (swayX * scale + shx);
-      home[j + 1] = cam.cy - ry * scale + (swayY * scale + shy);
+      home[j] = cam.cx + bx * scale + shx;
+      home[j + 1] = cam.cy - by * scale + shy;
       home[j + 2] = 3.2;
       hcol[j] = PF.PAL.accent[0] * lum;
       hcol[j + 1] = PF.PAL.accent[1] * lum;

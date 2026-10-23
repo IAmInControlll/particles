@@ -20,7 +20,13 @@ export function createDeck(cam, field) {
   const msgEl = document.getElementById("hud-msg");
   const TAU = 6.2832;
   let W = 0, H = 0, dpr = 1, cx = 0, cy = 0, frame = null, INST = [], BOX = [];
-  let swayX = 0, swayY = 0, deckT = 0, hitT = 0;
+  let deckT = 0, hitT = 0;
+  // head motion: the cockpit is bolted to the pilot, so it never rolls or
+  // slides as one sheet. G-forces nudge the head a few px (near steel moves
+  // HEAD_FAR more than the far frame - depth parallax), and both layers
+  // draw overscanned by OS so the nudge can never expose a screen edge.
+  let hx = 0, hy = 0, hxv = 0, hyv = 0, pvx = 0, pvy = 0, HM = 16, OS = 1.04;
+  const HEAD_FAR = 0.4;
   // "cockpit": opaque hull backing + pane cutouts + cull mask. "chase":
   // no backing at all (third-person, no canopy) - instruments repack as
   // a floating strip and world particles are never culled.
@@ -506,12 +512,12 @@ export function createDeck(cam, field) {
   // screen px -> does a world particle there show through open glass?
   // Inverts the near/far draw transforms of the last deck.frame.
   const shows = (hx, hy) => {
-    const dx = hx - cx - mTx, dy = hy - cy - mTy;
+    const dx = (hx - cx - mTx) / OS, dy = (hy - cy - mTy) / OS;
     const iu = (dx * mCos + dy * mSin) / cy, v = (dx * mSin - dy * mCos) / cy;
     if (!inPane((iu * cy) / cx, v) || blocked(BLKN, iu, v)) return false;
     const lx = cx + iu * cy, ly = cy - v * cy;
     for (const r of HB) if (lx > r[0] && lx < r[2] && ly > r[1] && ly < r[3]) return false;
-    const fx = hx - cx - fTx, fy = hy - cy - fTy;
+    const fx = (hx - cx - fTx) / OS, fy = (hy - cy - fTy) / OS;
     return !blocked(BLKF, (fx * fCos + fy * fSin) / cy, (fx * fSin - fy * fCos) / cy);
   };
 
@@ -524,6 +530,8 @@ export function createDeck(cam, field) {
   deck.resize = () => {
     W = innerWidth; H = innerHeight;
     cx = W / 2; cy = H / 2;
+    HM = Math.round(Math.min(W, H) * 0.018);
+    OS = 1 + (2.4 * HM) / Math.min(W, H);
     dpr = devicePixelRatio || 1;
     for (const c of [cv, far, near]) { c.width = W * dpr; c.height = H * dpr; }
     for (const c of [g, fg, ng]) c.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -603,19 +611,27 @@ export function createDeck(cam, field) {
     hitT = Math.max(0, hitT - dt);
     const vvx = cam.right[0] * cam.vx + cam.right[1] * cam.vy + cam.right[2] * cam.vz;
     const vvy = cam.up[0] * cam.vx + cam.up[1] * cam.vy + cam.up[2] * cam.vz;
-    const k = Math.min(1, dt * 5);
-    swayX += (Math.max(-0.12, Math.min(0.12, -vvx * 0.0002)) - swayX) * k;
-    swayY += (Math.max(-0.12, Math.min(0.12, vvy * 0.0002)) - swayY) * k;
-    const roll = cam.visor; // canopy counter-roll, self-levels after spin
-    // shake + a small speed/boost hum on top of the old jitter input
+    // G-load on the head: lateral/vertical acceleration plus turn rate
+    // (yv > 0 = turning left -> head pushed right -> cockpit shifts left)
+    const idt = 1 / Math.max(dt, 1e-3);
+    const ax = (vvx - pvx) * idt, ay = (vvy - pvy) * idt;
+    pvx = vvx; pvy = vvy;
+    const cl = (v) => Math.max(-HM, Math.min(HM, v));
+    const tgx = cl(ax * 0.012 - cam.yv * HM * 0.45), tgy = cl(-ay * 0.012 - cam.pv * HM * 0.45);
+    // soft spring: the head settles with a hint of overshoot
+    const sd = Math.min(dt, 0.05);
+    hxv += ((tgx - hx) * 70 - hxv * 12) * sd; hx += hxv * sd;
+    hyv += ((tgy - hy) * 70 - hyv * 12) * sd; hy += hyv * sd;
+    // shake + a small speed/boost hum, clamped inside the overscan
     const vib = cam.speedK * (cam.boosting ? 2.2 : 0.7);
     const shx = cam.ox * 0.45 + (Math.random() - 0.5) * (run.jitter * 14 + vib);
     const shy = cam.oy * 0.45 + (Math.random() - 0.5) * (run.jitter * 14 + vib);
     // mask transform = the near layer's draw transform, inverted in cull
-    mTx = swayX * cx + shx; mTy = swayY * cy + shy;
-    mCos = Math.cos(roll); mSin = Math.sin(roll);
-    fTx = mTx * 0.4; fTy = mTy * 0.4;
-    fCos = Math.cos(roll * 0.4); fSin = Math.sin(roll * 0.4);
+    const lim = HM * 1.15;
+    mTx = Math.max(-lim, Math.min(lim, hx + shx)); mTy = Math.max(-lim, Math.min(lim, hy + shy));
+    mCos = 1; mSin = 0;
+    fTx = hx * HEAD_FAR + shx * 0.5; fTy = hy * HEAD_FAR + shy * 0.5;
+    fCos = 1; fSin = 0;
 
     // pad contract: state tint cyan -> green as the nose lines up on the
     // next relay, pulsing amber/red once it is behind you
@@ -638,16 +654,16 @@ export function createDeck(cam, field) {
     } else for (let e = 0; e < 3; e++) tint[e] = HC[e];
     if (PADB) {
       const ox = PADB.x - cx, oy = PADB.y - cy;
-      pad.x = cx + mTx + ox * mCos - oy * mSin;
-      pad.y = cy + mTy + ox * mSin + oy * mCos;
-      pad.r = PADB.r; pad.ux = mSin; pad.uy = -mCos;
+      pad.x = cx + mTx + ox * OS;
+      pad.y = cy + mTy + oy * OS;
+      pad.r = PADB.r * OS; pad.ux = 0; pad.uy = -1;
     }
 
     g.clearRect(0, 0, W, H);
     if (view !== "chase") {
       g.save();
       g.translate(cx + fTx, cy + fTy);
-      g.rotate(roll * 0.4);
+      g.scale(OS, OS);
       g.drawImage(far, -cx, -cy, W, H);
       g.restore();
       // canopy glare: the sun burns through open glass - a warm bloom
@@ -664,7 +680,7 @@ export function createDeck(cam, field) {
       }
       g.save();
       g.translate(cx + mTx, cy + mTy);
-      g.rotate(roll);
+      g.scale(OS, OS);
       g.drawImage(near, -cx, -cy, W, H);
       g.restore();
     }
@@ -689,8 +705,7 @@ export function createDeck(cam, field) {
       }
     } else {
       g.save();
-      g.translate(mTx, mTy);
-      g.translate(cx, cy); g.rotate(roll); g.translate(-cx, -cy);
+      g.translate(cx + mTx, cy + mTy); g.scale(OS, OS); g.translate(-cx, -cy);
       for (const b of BOX) {
         g.save();
         g.translate(b.x, b.y);
