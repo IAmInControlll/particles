@@ -1056,20 +1056,28 @@ SCEN["hud-chase"] = [
 ];
 
 // holo-*: the dash compass. HOLO reads the pad contract and the arrow's
-// projected homes: centroid, extent, mean edge colour (normalised, so hue
-// compares across brightness), live beam motes.
+// projected homes: centroid, extent, mean colour (normalised, so hue
+// compares across brightness), live beam motes, the tail->tip screen
+// vector and depthRatio = head mean size / tail mean size (>1: the tip is
+// the near end, so the arrow points at the eye; <1: away).
 const HOLO = `(() => {
   const s = __space, f = s.field, h = s.cockpit.holo, P = s.deck.pad;
-  const nA = h.edge + h.fill + h.shaft;
+  const nA = h.arrow;
   let n = 0, sx = 0, sy = 0, x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9, c = [0, 0, 0], beam = 0;
+  let hs = 0, hn = 0, ts = 0, tn = 0, tx = 0, ty = 0, tc = 0;
   for (let k = 0; k < nA + h.beam; k++) {
     const p = h.lo + k, j = p * 3, x = f.home[j], y = f.home[j + 1];
     if (!f.size[p] || x < -4e3) continue;
     if (k >= nA) { beam++; continue; }
     n++; sx += x; sy += y;
     x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y);
-    if (k < h.edge) for (let e = 0; e < 3; e++) c[e] += f.hcol[j + e];
+    for (let e = 0; e < 3; e++) c[e] += f.hcol[j + e];
+    const a = h.tab[k * 4];
+    if (a > 0.25) { hs += f.size[p]; hn++; }
+    if (a < -0.25) { ts += f.size[p]; tn++; }
+    if (a < -0.45) { tx += x; ty += y; tc++; }
   }
+  const tip = h.lo;
   const m = Math.max(...c) || 1;
   const cx = n ? sx / n : -1, cy = n ? sy / n : -1;
   return {
@@ -1077,6 +1085,10 @@ const HOLO = `(() => {
     aim: +P.aim.toFixed(2), n, beam, centroid: [cx | 0, cy | 0],
     size: n ? [(x1 - x0) | 0, (y1 - y0) | 0] : null,
     edgeHue: c.map((v) => +(v / m).toFixed(2)),
+    mode: h.mode,
+    tipVec: tc ? [(f.home[tip * 3] - tx / tc) | 0, (f.home[tip * 3 + 1] - ty / tc) | 0] : null,
+    depthRatio: hn && tn ? +((hs / hn) / (ts / tn)).toFixed(2) : null,
+    ref: { seg: P.nSeg, dot: P.nDot },
     overDash: n > 0 && cy > innerHeight * 0.5 && cy < P.y && P.y - cy < innerHeight * 0.16,
   };
 })()`;
@@ -1094,9 +1106,8 @@ const FACE_RELAY = (yawOff) => `(() => {
 })()`;
 const HOLO_BUDGET = `(() => {
   const s = __space, c = s.cockpit, h = c.holo, L = s.ext;
-  const arrow = h.edge + h.fill + h.shaft;
-  return { N: s.field.N, layer: L.hi, motes: c.motes, reticle: c.pts - arrow - h.beam,
-    arrow, edge: h.edge, fill: h.fill, shaft: h.shaft, beam: h.beam, exterior: L.hi - L.lo };
+  return { N: s.field.N, layer: L.hi, motes: c.motes, reticle: c.pts - h.arrow - h.beam,
+    arrow: h.arrow, beam: h.beam, exterior: L.hi - L.lo };
 })()`;
 const holoShip = (ship) => [
   ["goto", `?ship=${ship}&view=cockpit`], [2500],
