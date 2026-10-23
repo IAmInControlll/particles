@@ -28,11 +28,20 @@ export function createDeck(cam, field) {
   // mask state: refreshed each frame, consumed by cull()
   let mCos = 1, mSin = 0, mTx = 0, mTy = 0, fCos = 1, fSin = 0, fTx = 0, fTy = 0;
   let PANES = [], BLKN = [], BLKF = [], HB = [];
+  // holo-compass projector: PADB = its spot in near-layer px (null in
+  // chase). pad = the live contract cockpit.js reads each frame: screen
+  // centre after sway/roll/shake, u = the rolled pad-up unit vector,
+  // aim = next relay . fwd, tint = state colour (rgb 0..1) shared by the
+  // particle arrow and the deck glow/readout.
+  let PADB = null;
+  const pad = { on: false, lit: false, x: 0, y: 0, r: 0, ux: 0, uy: -1, aim: 0, rng: 0, tint: [0.3, 0.85, 1] };
 
   const GRN = "#8fd8b0", AMB = "#e8b060", BLU = "#7ea8e8", RED = "#e85444",
     DIM = "#3d5a54",
     EL = "rgba(150,185,195,.16)", ED = "rgba(0,0,0,.5)",
     MONO = "ui-monospace,Consolas,monospace";
+  // holo compass states: cyan idle/tracking, green lined up, amber/red behind
+  const HC = [0.3, 0.85, 1], HG = [0.6, 1, 0.75], HA = [1, 0.62, 0.18], HR = [1, 0.2, 0.12];
 
   // unit cockpit space -> px (y up)
   const X = (u) => cx + u * cx;
@@ -336,6 +345,15 @@ export function createDeck(cam, field) {
       inst, x: X(inst.x), y: Y(inst.y), rot: inst.rot || 0,
       hw: inst.r ? UH(inst.r) : UW(inst.w) / 2, hh: UH(inst.r || inst.h / 2),
     }));
+    // portrait: the grid covers the lip, so the pad rides just above the
+    // grid's top bezel at the left, clear of the centred killfeed
+    const pd = frame.pad;
+    if (view === "chase" || !pd) PADB = null;
+    else if (W < H) {
+      const r = Math.max(7, UH(pd.r));
+      const top = Math.min(...BOX.map((b) => b.y - b.hh - 5));
+      PADB = { x: W * 0.2, y: Math.min(Y(pd.y), top - r - 8), r };
+    } else PADB = { x: X(pd.x), y: Y(pd.y), r: Math.max(7, UH(pd.r)) };
   };
 
   // members at one depth: struts as tapered beams, bands as strips, pods
@@ -373,6 +391,19 @@ export function createDeck(cam, field) {
     for (const p of frame.panes) { poly(ng, P(p.pts)); ng.stroke(); }
     members(ng, false);
     for (const b of BOX) house(ng, b);
+    if (PADB) {
+      // projector: steel collar, recessed well, faint emitter lens rings
+      const { x, y, r } = PADB;
+      ng.beginPath(); ng.arc(x, y, r + 3, 0, TAU);
+      ng.fillStyle = "#141b21"; ng.fill();
+      ng.strokeStyle = ED; ng.lineWidth = 1.6; ng.stroke();
+      ng.beginPath(); ng.arc(x, y, r, 0, TAU);
+      ng.fillStyle = vgrad(ng, y - r, y + r, "#03070a", "#0a141a"); ng.fill();
+      ng.strokeStyle = "rgba(110,200,225,.22)"; ng.lineWidth = 1;
+      for (const k of [0.82, 0.5]) { ng.beginPath(); ng.arc(x, y, r * k, 0, TAU); ng.stroke(); }
+      ng.beginPath(); ng.arc(x - r * 0.3, y - r * 0.35, r * 0.18, 0, TAU);
+      ng.fillStyle = "rgba(200,235,245,.12)"; ng.fill();
+    }
   };
 
   // cull mask: pane polys in unit space, plus every member as a tapered
@@ -401,6 +432,10 @@ export function createDeck(cam, field) {
       const ex = c * b.hw + s * b.hh + 5, ey = s * b.hw + c * b.hh + 5;
       return [b.x - ex, b.y - ey, b.x + ex, b.y + ey];
     });
+    if (PADB) {
+      const e = PADB.r + 4;
+      HB.push([PADB.x - e, PADB.y - e, PADB.x + e, PADB.y + e]);
+    }
     for (const b of frame.bands) {
       // one capsule on the strip midline, radius half its thickness
       const n = Math.min(b.e0.length, b.e1.length), last = b.loop ? n : n - 1;
@@ -477,6 +512,7 @@ export function createDeck(cam, field) {
 
   deck.hit = () => { hitT = 0.9; };
   deck.shows = shows;
+  deck.pad = pad;
 
   // probe: sample the composed deck canvas on a px grid. glass = deck
   // alpha under 64 (glare tops out ~46); falseShow = mask lets a particle
@@ -534,6 +570,32 @@ export function createDeck(cam, field) {
     mCos = Math.cos(roll); mSin = Math.sin(roll);
     fTx = mTx * 0.4; fTy = mTy * 0.4;
     fCos = Math.cos(roll * 0.4); fSin = Math.sin(roll * 0.4);
+
+    // pad contract: state tint cyan -> green as the nose lines up on the
+    // next relay, pulsing amber/red once it is behind you
+    const nx = run.next, tint = pad.tint;
+    pad.lit = !!nx;
+    pad.on = !!PADB;
+    if (nx) {
+      const dx = nx.x - cam.x, dy = nx.y - cam.y, dz = nx.z - cam.z;
+      const dl = Math.hypot(dx, dy, dz) || 1;
+      pad.aim = (dx * cam.fwd[0] + dy * cam.fwd[1] + dz * cam.fwd[2]) / dl;
+      pad.rng = dl;
+      const ss = (v) => (v = Math.max(0, Math.min(1, v)), v * v * (3 - 2 * v));
+      const gk = ss((pad.aim - 0.86) / 0.12), bk = ss((-pad.aim - 0.05) / 0.3);
+      const pl = 0.5 + 0.5 * Math.sin(deckT * 7);
+      for (let e = 0; e < 3; e++) {
+        const c = HC[e] + (HG[e] - HC[e]) * gk;
+        const b = (HA[e] + (HR[e] - HA[e]) * pl) * (0.7 + 0.3 * pl);
+        tint[e] = c + (b - c) * bk;
+      }
+    } else for (let e = 0; e < 3; e++) tint[e] = HC[e];
+    if (PADB) {
+      const ox = PADB.x - cx, oy = PADB.y - cy;
+      pad.x = cx + mTx + ox * mCos - oy * mSin;
+      pad.y = cy + mTy + ox * mSin + oy * mCos;
+      pad.r = PADB.r; pad.ux = mSin; pad.uy = -mCos;
+    }
 
     g.clearRect(0, 0, W, H);
     if (view !== "chase") {
@@ -602,6 +664,24 @@ export function createDeck(cam, field) {
         if (on) { g.shadowColor = g.fillStyle; g.shadowBlur = 6; }
         g.beginPath(); g.arc(X(l.x), Y(l.y), 2.4, 0, TAU); g.fill();
         g.shadowBlur = 0;
+      }
+      // projector glow + relay range; idle = dim slow breathe, no arrow
+      if (PADB) {
+        const { x, y, r } = PADB, t = pad.tint;
+        const rgb = (a) => `rgba(${(t[0] * 255) | 0},${(t[1] * 255) | 0},${(t[2] * 255) | 0},${a.toFixed(3)})`;
+        const k = pad.lit ? 1 : 0.22 + 0.14 * Math.sin(deckT * 1.6);
+        const gr = g.createRadialGradient(x, y, 0, x, y, r * 2.6);
+        gr.addColorStop(0, rgb(0.5 * k));
+        gr.addColorStop(0.35, rgb(0.2 * k));
+        gr.addColorStop(1, rgb(0));
+        g.globalAlpha = st.blink;
+        g.fillStyle = gr;
+        g.beginPath(); g.arc(x, y, r * 2.6, 0, TAU); g.fill();
+        g.beginPath(); g.arc(x, y, r * 0.42, 0, TAU);
+        g.fillStyle = rgb(0.35 + 0.55 * k); g.fill();
+        const rg = pad.rng;
+        const s = pad.lit ? `RLY ${rg >= 1000 ? (rg / 1000).toFixed(1) + "k" : rg | 0}` : "RLY --";
+        text(g, s, x + r + 8, y + 1, Math.max(9, H * 0.012), pad.lit ? rgb(0.9) : DIM, "left", pad.lit ? 4 : 0);
       }
       g.globalAlpha = 1;
       g.restore();

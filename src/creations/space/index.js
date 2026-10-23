@@ -72,7 +72,7 @@ export function createSpace(field, PF, mods = {}) {
     cam.thrustK = ship.thrust; cam.capK = ship.cap; cam.turnK = ship.turn;
     run.hullMax = ship.hullMax;
     run.hull = ship.hullMax;
-    cockpit = mkCockpit(field, cam, PF, layers.cockpit);
+    cockpit = mkCockpit(field, cam, PF, layers.cockpit, deck.pad);
     if (exterior) exterior.setShip(ship.name);
     deck.paint(ship);
   };
@@ -418,9 +418,9 @@ export function createSpace(field, PF, mods = {}) {
     if (run.phase === "over" || run.phase === "pick") {
       course.frame(dt, snapTrack);
       fx.frame(dt, snapTrack);
+      deck.frame(dt, run, world); // first: cockpit reads this frame's deck.pad
       cockpit.frame(dt, run, world, chase);
       exterior.frame(dt, chase, snapTrack);
-      deck.frame(dt, run, world);
       deck.cull(WORLD);
       hud.frame(dt, run, cam);
       comms.frame(dt, cine.draw);
@@ -492,9 +492,9 @@ export function createSpace(field, PF, mods = {}) {
     run.next = course.next;
     ent.frame(dt, snapTrack, run.phase === "fight");
     fx.frame(dt, snapTrack);
+    deck.frame(dt, run, world); // first: cockpit reads this frame's deck.pad
     cockpit.frame(dt, run, world, chase);
     exterior.frame(dt, chase, snapTrack);
-    deck.frame(dt, run, world);
     deck.cull(WORLD);
     hud.frame(dt, run, cam);
     comms.frame(dt, cine.draw);

@@ -10,6 +10,8 @@
 // Layout rules: the dash band is the pane's bottom edge; pillars leave
 // the screen through the side edges below y 0.5 so the top-left 30% x 22%
 // (comms box) stays glass; `inst` sit on hull below the pane edge.
+// pad: the holo-compass projector {x, y, r} on the coaming lip, left of
+// centre so the arrow above it clears the killfeed under the reticle.
 const S = (x0, y0, x1, y1, w0, w1, z0, z1) => ({ p0: [x0, y0], p1: [x1, y1], w0, w1, z0, z1 });
 const pair = (s) => [s, { ...s, p0: [-s.p0[0], s.p0[1]], p1: [-s.p1[0], s.p1[1]] }];
 const mirror = (pts) => pts.map(([x, y]) => [-x, y]);
@@ -55,6 +57,7 @@ export const FRAMES = {
       { id: "com", label: "COM", x: 0, y: -0.86, w: 0.50, h: 0.11 },
       { id: "sys", label: "PWR", x: 0.74, y: -0.79, w: 0.22, h: 0.27, rot: 0.12 },
     ],
+    pad: { x: -0.17, y: -0.425, r: 0.022 },
   },
 
   // interceptor bubble: slender kinked frame rails far out at the sides,
@@ -84,6 +87,7 @@ export const FRAMES = {
       { id: "com", label: "COM", x: 0, y: -0.89, w: 0.42, h: 0.10 },
       { id: "sys", label: "PWR", x: 0.72, y: -0.85, w: 0.20, h: 0.24, rot: 0.10 },
     ],
+    pad: { x: -0.17, y: -0.52, r: 0.019 },
   },
 
   // hauler: chunky pillars, a tall heavy dash, one thin high brace
@@ -113,5 +117,6 @@ export const FRAMES = {
       { id: "com", label: "COM", x: -0.02, y: -0.80, w: 0.56, h: 0.12 },
       { id: "sys", label: "PWR", x: 0.80, y: -0.73, w: 0.22, h: 0.26, rot: 0.08 },
     ],
+    pad: { x: -0.17, y: -0.33, r: 0.026 },
   },
 };
