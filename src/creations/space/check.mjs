@@ -588,7 +588,7 @@ const SCEN = {
   ],
   // music-*: scheduler probes (live) and offline renders -> shots/music-*.wav
   "music-sched": [
-    [2500],
+    [2500], ["eval", "__space.au.unlock()"], [300],
     ["probe", "before", "__space.au.musicStats()"],
     ["probe", "cycle", `(async () => {
       const s = __space, au = s.au, orig = au.music, log = [];
