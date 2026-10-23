@@ -183,7 +183,30 @@ export function createDeck(cam, field) {
   };
   const drawMsg = (c, st, hw, hh) => {
     const s = +msgEl.style.opacity > 0 ? msgEl.textContent : "";
-    if (s) text(c, s, 0, 0, Math.min(hh * 0.5, hw * 0.2), GRN, "center", 6);
+    if (s) {
+      // shrink to the cell; below 11px split in two lines; last resort an ellipsis
+      const mw = hw * 1.9, px0 = Math.min(hh * 0.5, hw * 0.2);
+      const wid = (t, px) => (c.font = `600 ${px}px ${MONO}`, c.measureText(t).width);
+      const fit = (t, px) => {
+        if (wid(t, px) > mw) px = Math.max(8, px * mw / wid(t, px));
+        while (t.length > 1 && wid(t, px) > mw) t = t.slice(0, -2).trimEnd() + "…";
+        return [t, px];
+      };
+      let lines = [s], px = fit(s, px0)[1];
+      const sp = [...s].map((ch, i) => (ch === " " ? i : -1)).filter((i) => i >= 0)
+        .sort((x, y) => Math.abs(x - s.length / 2) - Math.abs(y - s.length / 2))[0];
+      if (px < 11 && sp !== undefined) {
+        lines = [s.slice(0, sp), s.slice(sp + 1)];
+        px = Math.min(px0, hh * 0.4, ...lines.map((t) => fit(t, px0)[1]));
+      }
+      let mx = 0;
+      lines.forEach((t, i) => {
+        const [tt] = fit(t, px);
+        text(c, tt, 0, lines.length > 1 ? (i - 0.5) * px * 1.2 : 0, px, GRN, "center", 6);
+        mx = Math.max(mx, c.measureText(tt).width);
+      });
+      st.msgW = mx; // check.mjs reads it back via deck.layoutInfo
+    }
     else text(c, "SYS NOMINAL", 0, 0, hh * 0.4, DIM, "center");
   };
   const drawRdr = (c, st, hw, hh) => {
@@ -329,8 +352,12 @@ export function createDeck(cam, field) {
       hw: cw * 0.44, hh: Math.min(ch * 0.38, cw * 0.26),
     }));
   };
+  // chase strip: portrait gets a taller band (3x2 cells); the bottom gutter
+  // holds the DOM key hint and home link so nothing overprints a cell
+  const stripH = () => (W < H ? Math.max(150, H * 0.2) : Math.max(96, H * 0.16));
+  const GUT = 28;
   const layout = () => {
-    if (view === "chase") BOX = grid(W < H ? 3 : INST.length, H - Math.max(96, H * 0.16));
+    if (view === "chase") BOX = grid(W < H ? 3 : INST.length, H - stripH(), H - GUT);
     else if (W < H) BOX = grid(2, H - Math.max(150, H * 0.28) - 22, H - 22); // clear of the home link
     else BOX = INST.map((inst) => ({
       inst, x: X(inst.x), y: Y(inst.y), rot: inst.rot || 0,
@@ -454,6 +481,7 @@ export function createDeck(cam, field) {
 
   const st = { run: null, cam, world: null, deckT: 0, blink: 1 };
   const deck = {};
+  deck.layoutInfo = () => ({ boxes: BOX.map((b) => ({ id: b.inst.id, x: b.x, y: b.y, hw: b.hw, hh: b.hh })), msgW: st.msgW, stripH: stripH() });
 
   deck.resize = () => {
     W = innerWidth; H = innerHeight;
@@ -502,7 +530,22 @@ export function createDeck(cam, field) {
   // pane (or under any member drawn over one) is offscreen this frame
   const home = field.home, snap = field.snap, homed = field.homed;
   deck.cull = (ranges) => {
-    if (view === "chase" || !PANES.length) return; // chase: no panes, all world visible
+    if (view === "chase") {
+      // no panes, but the strip is drawn under the GL canvas: park world
+      // homes inside its band. The exterior ship and cockpit layer are not
+      // culled - the ship flies above the band and a cut would slice it.
+      const top = H - stripH();
+      for (const rg of ranges) {
+        for (let p = rg.lo; p < rg.hi; p++) {
+          const j = p * 3;
+          if (!homed[p] || home[j + 1] < top || home[j] < -4e3) continue;
+          home[j] = -5e3; home[j + 1] = -5e3; home[j + 2] = 0;
+          snap[p] = 1;
+        }
+      }
+      return;
+    }
+    if (!PANES.length) return;
     for (const rg of ranges) {
       for (let p = rg.lo; p < rg.hi; p++) {
         if (!homed[p]) continue;
@@ -566,7 +609,7 @@ export function createDeck(cam, field) {
     if (view === "chase") {
       // floating HUD strip: the same instrument draw fns repacked into a
       // bottom row over a faint dark band, readable against open space
-      const sh = Math.max(96, H * 0.16), sy = H - sh;
+      const sh = stripH(), sy = H - sh;
       g.fillStyle = "rgba(4,9,13,.58)";
       g.fillRect(0, sy, W, sh);
       g.strokeStyle = "rgba(120,150,160,.18)";
@@ -652,7 +695,7 @@ export function createDeck(cam, field) {
         const vy = U[0] * dx + U[1] * dy + U[2] * dz;
         const vz = F[0] * dx + F[1] * dy + F[2] * dz;
         const mX = 30, mT = 30,
-          mB = view === "chase" ? Math.max(96, H * 0.16) + 14 : H * 0.36; // cockpit: clear the dash band
+          mB = view === "chase" ? stripH() + 14 : H * 0.36; // cockpit: clear the dash band
         let sx, sy, edge = true;
         if (vz > 20 && cam.project(lm.x, lm.y, lm.z)) {
           sx = cam.out[0]; sy = cam.out[1];

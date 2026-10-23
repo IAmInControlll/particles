@@ -1013,6 +1013,47 @@ SCEN["combat-lead-chase"] = [
   ["shot", "combat-chase-on"],
 ];
 
+// hud-chase: long COM text, invuln readout and world particles in the strip
+// band. Probes: no world home inside the strip, COM text inside its cell,
+// no cell/hub overlap.
+const HUD_PROBE = `(() => {
+  const s = __space, f = s.field, L = s.deck.layoutInfo(), top = innerHeight - L.stripH;
+  let inStrip = 0, live = 0;
+  for (const rg of [s.layers.ent, s.layers.course, s.layers.planets, s.layers.stars, s.layers.fx])
+    for (let p = rg.lo; p < rg.hi; p++) {
+      if (!f.homed[p] || f.home[p * 3] < -4e3) continue;
+      live++;
+      if (f.home[p * 3 + 1] >= top) inStrip++;
+    }
+  const com = L.boxes.find((b) => b.id === "com"), h = document.getElementById("hub").getBoundingClientRect();
+  const hit = (a, b) => a.x - a.hw < b.x + b.hw && a.x + a.hw > b.x - b.hw && a.y - a.hh < b.y + b.hh && a.y + a.hh > b.y - b.hh;
+  let cellOverlap = 0;
+  for (let i = 0; i < L.boxes.length; i++) {
+    for (let j = i + 1; j < L.boxes.length; j++) if (hit(L.boxes[i], L.boxes[j])) cellOverlap++;
+    const b = L.boxes[i];
+    if (hit(b, { x: (h.left + h.right) / 2, y: (h.top + h.bottom) / 2, hw: h.width / 2, hh: h.height / 2 })) cellOverlap += 100;
+  }
+  return { inStrip, live, comTextW: Math.round(L.msgW), comCellW: Math.round(com.hw * 2), fits: L.msgW <= com.hw * 2, cellOverlap, hubTop: Math.round(h.top), boxBottom: Math.round(Math.max(...L.boxes.map((b) => b.y + b.hh + 5))) };
+})()`;
+const HUD_SET = `(() => { const s = __space;
+  s.hud.flash("damaged relay - thread the gap and keep the line", 30);
+  s.run.invuln = 30;
+  for (let k = 0; k < 6; k++) s.fx.burst(s.cam.x, s.cam.y, s.cam.z - 60, [1, 0.5, 0.8], 80, 60);
+  return 1; })()`;
+SCEN["hud-chase"] = [
+  ["viewport", 1600, 900],
+  ["goto", "?ship=kestrel&view=chase"], [2500],
+  ["eval", HUD_SET], [400],
+  ["probe", "hud1600", HUD_PROBE],
+  ["shot", "hud-chase-1600"],
+  ["viewport", 390, 844], [600],
+  ["eval", HUD_SET], [400],
+  ["probe", "hud390", HUD_PROBE],
+  ["shot", "hud-chase-390"],
+  ["viewport", 1600, 900],
+  ["eval", "localStorage.removeItem('space.view')"],
+];
+
 const names = process.argv.slice(2);
 const which = names.length ? names : ["boot"];
 const errors = [];
@@ -1046,6 +1087,7 @@ for (const name of which) {
       await page.waitForTimeout(s[2]);
       await page.keyboard.up(s[1]);
     } else if (s[0] === "eval") await page.evaluate(s[1]);
+    else if (s[0] === "viewport") { await page.setViewportSize({ width: s[1], height: s[2] }); await page.waitForTimeout(300); }
     else if (s[0] === "goto") {
       await page.goto(`${BASE}/space.html${s[1]}`);
       await page.waitForTimeout(400);

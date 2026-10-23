@@ -407,7 +407,7 @@ export function createSpace(field, PF, mods = {}) {
 
   let fireT = 0, prevAuto = false;
 
-  const game = { field, cam, run, keys, course, ent, hit, deck, ext: exterior, auto: false, au, world, fx, hud, comms, cine };
+  const game = { field, layers, cam, run, keys, course, ent, hit, deck, ext: exterior, auto: false, au, world, fx, hud, comms, cine };
   Object.defineProperty(game, "ship", { get: () => ship.name });
   Object.defineProperty(game, "cockpit", { get: () => cockpit });
   Object.defineProperty(game, "view", { get: () => view });
