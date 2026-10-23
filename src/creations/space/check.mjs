@@ -30,7 +30,8 @@ const CANOPY = `(() => {
 
 // steps: [ms] wait | ["shot", name] | ["key", code, ms] hold |
 // ["eval", js] run js in page | ["probe", name, js] capture js value |
-// ["viewport", w, h] resize the page
+// ["viewport", w, h] resize the page | ["crop", row, label, rectJs] keep a
+// clipped shot for ["sheet", file], a labelled grid PNG, one row per row key
 const SCEN = {
   boot: [[2500], ["probe", "phase", "__space.run.phase"], ["shot", "boot"]],
   shiptest: [
@@ -1167,10 +1168,64 @@ SCEN["holo-chase"] = [
   ["shot", "holo-dock"],
 ];
 
+// holo3d: the 3D compass at fixed attitudes, both reference variants.
+// AIM_REL freezes the run ("over" stops course.next writes) and parks the
+// relay 3000wu out along (right, up, fwd) in the ship frame; SWEEP turns
+// it one slow full yaw (8s) so samples land at 45/135/225/315 deg.
+const AIM_REL = (r, u, f) => `(() => {
+  const s = __space, c = s.cam, k = 3000 / Math.hypot(${r}, ${u}, ${f});
+  clearInterval(window.__sweep);
+  s.auto = false; s.run.phase = "over";
+  const v = [0, 1, 2].map((e) => c.right[e] * ${r} + c.up[e] * ${u} + c.fwd[e] * ${f});
+  s.run.next = { x: c.x + v[0] * k, y: c.y + v[1] * k, z: c.z + v[2] * k };
+  return 1;
+})()`;
+const SWEEP = `(() => {
+  const s = __space, c = s.cam, t0 = performance.now();
+  clearInterval(window.__sweep);
+  s.auto = false; s.run.phase = "over";
+  const go = () => {
+    const a = ((performance.now() - t0) / 8000) * 6.2832;
+    window.__sweepA = (a * 180) / Math.PI;
+    const r = -Math.sin(a), f = Math.cos(a);
+    const v = [0, 1, 2].map((e) => c.right[e] * r + c.fwd[e] * f);
+    s.run.next = { x: c.x + v[0] * 3000, y: c.y + v[1] * 3000, z: c.z + v[2] * 3000 };
+  };
+  go();
+  window.__sweep = setInterval(go, 30);
+  return 1;
+})()`;
+const PAD_RECT = `(() => { const P = __space.deck.pad; return { x: P.x - 130, y: P.y - 190, width: 260, height: 230 }; })()`;
+const S3 = Math.SQRT1_2, T3 = 1 / Math.sqrt(3);
+const ATT = [
+  ["ahead", 0, 0, 1], ["behind", 0, 0, -1], ["left", -1, 0, 0], ["right", 1, 0, 0],
+  ["up", 0, 1, 0], ["down", 0, -1, 0], ["fwd-up-L", -T3, T3, T3], ["aft-dn-R", T3, -T3, -T3],
+  ["fwd-R30", 0.5, 0, Math.sqrt(3) / 2],
+];
+const holo3d = (mode) => [
+  ["goto", `?ship=kestrel&view=cockpit&compass=${mode}`], [2500],
+  ...ATT.flatMap(([n, r, u, f]) => [
+    ["eval", AIM_REL(r, u, f)], [900],
+    ["probe", `${mode}:${n}`, HOLO],
+    ["shot", `holo3d-${mode}-${n}`],
+    ["crop", mode, n, PAD_RECT],
+  ]),
+  ["eval", SWEEP],
+  ...[45, 135, 225, 315].flatMap((deg) => [
+    ["eval", `new Promise((res) => { const w = () => (window.__sweepA >= ${deg} ? res(1) : requestAnimationFrame(w)); w(); })`],
+    ["probe", `${mode}:sweep${deg}`, HOLO],
+    ["shot", `holo3d-${mode}-sweep${deg}`],
+    ["crop", mode, `sweep${deg}`, PAD_RECT],
+  ]),
+  ["eval", "clearInterval(window.__sweep)"],
+];
+SCEN.holo3d = [...holo3d("ball"), ...holo3d("stalk"), ["sheet", "space-holo3d-sheet.png"]];
+
 const names = process.argv.slice(2);
 const which = names.length ? names : ["boot"];
 const errors = [];
 const probes = {};
+const crops = [];
 const browser = await chromium.launch({
   executablePath:
     "C:/Users/Mohammad/AppData/Local/ms-playwright/chromium_headless_shell-1234/chrome-headless-shell-win64/chrome-headless-shell.exe",
@@ -1208,7 +1263,41 @@ for (const name of which) {
       await page.reload(); await page.waitForTimeout(400);
       if (!QS.includes("ship=")) await page.keyboard.press("Enter"); // leave the picker
     }
-    else if (s[0] === "probe") {
+    else if (s[0] === "crop") {
+      const clip = await page.evaluate(s[3]);
+      const b64 = (await page.screenshot({ clip })).toString("base64");
+      const pr = probes[`${s[1]}:${s[2]}`];
+      crops.push({ row: s[1], label: s[2], b64, note: pr && pr.depthRatio != null ? `depth ${pr.depthRatio}` : "" });
+    } else if (s[0] === "sheet") {
+      // drawn in the page itself: no image dependency on the node side
+      const b64 = await page.evaluate(async (crops) => {
+        const rows = [...new Set(crops.map((c) => c.row))];
+        const ims = await Promise.all(crops.map(async (c) => createImageBitmap(await (await fetch(`data:image/png;base64,${c.b64}`)).blob())));
+        const cw = ims[0].width, ch = ims[0].height, LW = 70, TH = 34;
+        const cols = Math.max(...rows.map((r) => crops.filter((c) => c.row === r).length));
+        const cv = new OffscreenCanvas(LW + cols * cw, rows.length * (ch + TH));
+        const g = cv.getContext("2d");
+        g.fillStyle = "#05080b"; g.fillRect(0, 0, cv.width, cv.height);
+        g.font = "13px monospace"; g.textBaseline = "top";
+        rows.forEach((r, ri) => {
+          const y = ri * (ch + TH);
+          g.fillStyle = "#cfe"; g.fillText(r, 8, y + TH + ch / 2);
+          crops.filter((c) => c.row === r).forEach((c, ci) => {
+            const x = LW + ci * cw;
+            g.drawImage(ims[crops.indexOf(c)], x, y + TH);
+            g.strokeStyle = "#234"; g.strokeRect(x + 0.5, y + TH + 0.5, cw - 1, ch - 1);
+            g.fillStyle = "#cfe"; g.fillText(c.label, x + 6, y + 3);
+            g.fillStyle = "#7a9"; g.fillText(c.note, x + 6, y + 18);
+          });
+        });
+        const blob = await cv.convertToBlob({ type: "image/png" });
+        const u8 = new Uint8Array(await blob.arrayBuffer());
+        let bin = "";
+        for (let i = 0; i < u8.length; i += 0x8000) bin += String.fromCharCode(...u8.subarray(i, i + 0x8000));
+        return btoa(bin);
+      }, crops);
+      writeFileSync(path.join(OUT, s[1]), Buffer.from(b64, "base64"));
+    } else if (s[0] === "probe") {
       const v = await page.evaluate(s[2]);
       if (v && v.files) { // probe may hand back files (name -> base64) to save under shots/
         for (const [f, b] of Object.entries(v.files)) writeFileSync(path.join(OUT, f), Buffer.from(b, "base64"));
