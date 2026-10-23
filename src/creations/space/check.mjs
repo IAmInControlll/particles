@@ -29,7 +29,8 @@ const CANOPY = `(() => {
     })()`;
 
 // steps: [ms] wait | ["shot", name] | ["key", code, ms] hold |
-// ["eval", js] run js in page | ["probe", name, js] capture js value
+// ["eval", js] run js in page | ["probe", name, js] capture js value |
+// ["viewport", w, h] resize the page
 const SCEN = {
   boot: [[2500], ["probe", "phase", "__space.run.phase"], ["shot", "boot"]],
   shiptest: [
@@ -1052,6 +1053,107 @@ SCEN["hud-chase"] = [
   ["shot", "hud-chase-390"],
   ["viewport", 1600, 900],
   ["eval", "localStorage.removeItem('space.view')"],
+];
+
+// holo-*: the dash compass. HOLO reads the pad contract and the arrow's
+// projected homes: centroid, extent, mean edge colour (normalised, so hue
+// compares across brightness), live beam motes.
+const HOLO = `(() => {
+  const s = __space, f = s.field, h = s.cockpit.holo, P = s.deck.pad;
+  const nA = h.edge + h.fill + h.shaft;
+  let n = 0, sx = 0, sy = 0, x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9, c = [0, 0, 0], beam = 0;
+  for (let k = 0; k < nA + h.beam; k++) {
+    const p = h.lo + k, j = p * 3, x = f.home[j], y = f.home[j + 1];
+    if (!f.size[p] || x < -4e3) continue;
+    if (k >= nA) { beam++; continue; }
+    n++; sx += x; sy += y;
+    x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y);
+    if (k < h.edge) for (let e = 0; e < 3; e++) c[e] += f.hcol[j + e];
+  }
+  const m = Math.max(...c) || 1;
+  const cx = n ? sx / n : -1, cy = n ? sy / n : -1;
+  return {
+    pad: { on: P.on, lit: P.lit, x: P.x | 0, y: P.y | 0, r: +P.r.toFixed(1) },
+    aim: +P.aim.toFixed(2), n, beam, centroid: [cx | 0, cy | 0],
+    size: n ? [(x1 - x0) | 0, (y1 - y0) | 0] : null,
+    edgeHue: c.map((v) => +(v / m).toFixed(2)),
+    overDash: n > 0 && cy > innerHeight * 0.5 && cy < P.y && P.y - cy < innerHeight * 0.16,
+  };
+})()`;
+// park the ship and turn so the next relay sits yawOff off the nose
+// (+ turns left, so -PI/2 puts the relay hard left)
+const FACE_RELAY = (yawOff) => `(() => {
+  const s = __space, c = s.cam, g = s.run.next;
+  s.auto = false; s.keys.KeyW = false;
+  if (!g) return null;
+  const dx = g.x - c.x, dy = g.y - c.y, dz = g.z - c.z, d = Math.hypot(dx, dy, dz);
+  c.pitch = Math.asin(dy / d); c.yaw = Math.atan2(-dx, -dz) + ${yawOff}; c.roll = 0;
+  c.yv = c.pv = c.rv = 0; c.vx = c.vy = c.vz = 0;
+  c.update(1e-4, s.keys);
+  return 1;
+})()`;
+const HOLO_BUDGET = `(() => {
+  const s = __space, c = s.cockpit, h = c.holo, L = s.ext;
+  const arrow = h.edge + h.fill + h.shaft;
+  return { N: s.field.N, layer: L.hi, motes: c.motes, reticle: c.pts - arrow - h.beam,
+    arrow, edge: h.edge, fill: h.fill, shaft: h.shaft, beam: h.beam, exterior: L.hi - L.lo };
+})()`;
+const holoShip = (ship) => [
+  ["goto", `?ship=${ship}&view=cockpit`], [2500],
+  ["eval", "window.__space.auto = true"],
+  [2500],
+  ["eval", FACE_RELAY(0)], [900],
+  ["probe", `${ship}Ahead`, HOLO],
+  ["shot", `holo-${ship}-ahead`],
+  ["eval", FACE_RELAY(-Math.PI / 2)], [900],
+  ["probe", `${ship}Left`, HOLO],
+  ["shot", `holo-${ship}-left`],
+  ["eval", FACE_RELAY(Math.PI)], [900],
+  ["probe", `${ship}Behind`, HOLO],
+  ["shot", `holo-${ship}-behind`],
+];
+SCEN["holo-dash"] = [
+  ...holoShip("kestrel"),
+  ["probe", "budgetDesktop", HOLO_BUDGET],
+  // no pending relay: freeze the run ("over" stops course.next writes) and
+  // clear the target - the pad idles dim with no arrow
+  ["eval", "__space.run.phase = 'over'; __space.run.next = null"], [900],
+  ["probe", "kestrelIdle", HOLO],
+  ["shot", "holo-kestrel-idle"],
+  ...holoShip("dart"),
+  ...holoShip("mule"),
+];
+SCEN["holo-portrait"] = [
+  ["viewport", 390, 844],
+  ["goto", "?ship=kestrel&view=cockpit"], [2500],
+  ["eval", "window.__space.auto = true"],
+  [2500],
+  ["eval", FACE_RELAY(-0.5)], [900],
+  ["probe", "portrait", HOLO],
+  ["probe", "budgetMobile", HOLO_BUDGET],
+  ["shot", "holo-portrait"],
+  ["viewport", 1600, 900],
+];
+SCEN["holo-chase"] = [
+  ["goto", "?ship=kestrel&view=chase"], [2500],
+  ["eval", "window.__space.auto = true"],
+  [2500],
+  ["eval", FACE_RELAY(-0.6)], [900],
+  ["probe", "chase", HOLO],
+  ["shot", "holo-chase"],
+  ["eval", "localStorage.removeItem('space.view')"],
+  // a dock cutscene parks every cockpit point, the compass included
+  ["goto", "?ship=kestrel&view=cockpit"], [2500],
+  ["eval", `(() => {
+    const s = __space, lm = s.course.landmark;
+    lm.x = s.cam.x + s.cam.fwd[0] * 600 + s.cam.right[0] * 120;
+    lm.y = s.cam.y + s.cam.fwd[1] * 600;
+    lm.z = s.cam.z + s.cam.fwd[2] * 600 + s.cam.right[2] * 120;
+    return 1;
+  })()`],
+  [1500],
+  ["probe", "dock", `({ phase: __space.run.phase, holo: ${HOLO} })`],
+  ["shot", "holo-dock"],
 ];
 
 const names = process.argv.slice(2);
