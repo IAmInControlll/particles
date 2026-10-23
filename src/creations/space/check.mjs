@@ -655,6 +655,13 @@ const SCEN = {
     ["shot", "world-sky-leg2-giant"],
     ["eval", "__look([0.3, 0.1, -1])"], [700], ["shot", "world-sky-leg2-fwd"],
     ["eval", "__space.course.respawnLm(2)"], [11000], ["eval", "__toGiant()"], [700], ["shot", "world-sky-leg3-giant"],
+    // chase view: the painted body and its particle limb must stay registered
+    ["goto", "?ship=kestrel&view=chase"], [2000],
+    ["eval", `(() => { const s = __space, g = s.course.sky.giant;
+      const d = [g.x - s.cam.x, g.y - s.cam.y, g.z - s.cam.z], l = Math.hypot(...d);
+      s.cam.pitch = Math.asin(d[1] / l) + 0.12; s.cam.yaw = Math.atan2(-d[0], -d[2]); return 1; })()`],
+    [1500], ["shot", "world-sky-chase"],
+    ["eval", "localStorage.removeItem('space.view')"],
   ],
   // world-perf: mean rAF interval and mean game.frame JS time over ~4s of
   // autopilot (headless rAF is vsync-capped, so frameMs is the sharper signal)
