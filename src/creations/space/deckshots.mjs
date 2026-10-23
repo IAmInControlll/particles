@@ -23,7 +23,7 @@ const page = await browser.newPage({ viewport: { width: 1600, height: 900 } });
 page.on("console", (m) => m.type() === "error" && errors.push(m.text()));
 page.on("pageerror", (e) => errors.push(String(e)));
 
-await page.goto("http://localhost:8321/space.html");
+await page.goto(`http://localhost:${process.env.PORT || 8321}/space.html`);
 await page.waitForTimeout(2500);
 // pick screen: dart preview narrows the canopy, kestrel for the boot shot
 await page.keyboard.press("Digit2");

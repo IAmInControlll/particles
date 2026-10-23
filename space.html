@@ -22,6 +22,8 @@
     transition: opacity .3s; text-transform: uppercase; }
   #hud-keys { left: 50%; bottom: 10px; transform: translateX(-50%);
     color: #4d6a70; font-size: 11px; }
+  /* no keyboard on a portrait phone; the line overprints the dash grid */
+  @media (orientation: portrait) { #hud-keys { display: none; } }
 
   #over {
     position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%);
