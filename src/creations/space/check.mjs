@@ -10,7 +10,7 @@ const require = createRequire(import.meta.url);
 const { chromium } = require(
   "C:/Users/Mohammad/AppData/Local/Programs/Devin/resources/app/node_modules/playwright-core"
 );
-const BASE = "http://localhost:8321";
+const BASE = `http://localhost:${process.env.PORT || 8321}`;
 const OUT = path.join(root, "shots");
 mkdirSync(OUT, { recursive: true });
 
@@ -235,6 +235,30 @@ const SCEN = {
     [2500],
     ["probe", "pickup", "({shield: __space.run.shield, taken: __space.ent.picks[0].taken})"],
     ["shot", "fight-late"],
+  ],
+  // wave bonus pays only when every hostile dies; escapees forfeit it
+  waveclear: [
+    ["reload"], [1500],
+    ["eval", `(() => {
+      const s = __space;
+      s.run.gatesPassed = 16; s.run.phase = "race"; s.run.wave = 0;
+      s.ent.spawnShip("fighter"); s.ent.spawnShip("drone");
+      s.run.phase = "fight"; s.run.waveSize = s.ent.countAlive(); s.run.waveKills = 0;
+      window.__s0 = s.run.score;
+      for (const sh of s.ent.ships) if (sh.alive) { sh.state = "leave"; sh.stateT = 6; }
+    })()`],
+    [600],
+    ["probe", "escaped", "({phase: __space.run.phase, dScore: __space.run.score - __s0, kills: __space.run.waveKills, size: __space.run.waveSize})"],
+    ["eval", `(() => {
+      const s = __space;
+      s.ent.spawnShip("drone"); s.ent.spawnShip("drone");
+      s.run.phase = "fight"; s.run.waveSize = s.ent.countAlive(); s.run.waveKills = 0;
+      s.run.invuln = 99;
+      window.__s1 = s.run.score;
+      for (const sh of s.ent.ships) if (sh.alive) { sh.x = s.cam.x; sh.y = s.cam.y; sh.z = s.cam.z; }
+    })()`],
+    [600],
+    ["probe", "rammed", "({phase: __space.run.phase, dScore: __space.run.score - __s1, kills: __space.run.waveKills, size: __space.run.waveSize})"],
   ],
   ship: [
     ["reload"], [2000],

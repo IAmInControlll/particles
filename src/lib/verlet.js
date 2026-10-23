@@ -10,7 +10,7 @@ export function createVerlet({ gravity = 2400, iterations = 7, damp = 0.99 } = {
   let lastDt = 1 / 60;
 
   function point(x, y) {
-    const p = { x, y, px: x, py: y, pull: null, k: 0, gone: false, gs: 1, im: 1 };
+    const p = { x, y, px: x, py: y, pull: null, k: 0, gone: false, gs: 1, im: 1, vd: 1 };
     pts.push(p);
     return p;
   }
@@ -54,8 +54,16 @@ export function createVerlet({ gravity = 2400, iterations = 7, damp = 0.99 } = {
     const wr = env.wallR ?? Infinity;
     for (const p of pts) {
       if (p.gone) continue;
-      const nx = p.x + (p.x - p.px) * damp;
-      const ny = p.y + (p.y - p.py) * damp + g * p.gs;
+      // speed bound: a joint trapped between conflicting pulls and links
+      // can compound position corrections into runaway velocity over
+      // frames (a body launched to y -300k was measured). Clamp the
+      // implicit velocity so a pump saturates instead of exploding.
+      let vx = (p.x - p.px) * damp * p.vd;
+      let vy = (p.y - p.py) * damp * p.vd;
+      const v2 = vx * vx + vy * vy, vmax = 4200 * lastDt;
+      if (v2 > vmax * vmax) { const s = vmax / Math.sqrt(v2); vx *= s; vy *= s; }
+      const nx = p.x + vx;
+      const ny = p.y + vy + g * p.gs;
       p.px = p.x;
       p.py = p.y;
       p.x = nx;
@@ -78,14 +86,12 @@ export function createVerlet({ gravity = 2400, iterations = 7, damp = 0.99 } = {
           if (!e) continue;
           const rot = -e * c.stiff;
           const cs = Math.cos(rot), sn = Math.sin(rot);
-          // shift px with the correction so the clamp bends the joint
-          // instead of pumping energy - an unshifted teleport reads as
-          // added velocity next step and whips a buoyant joint forever
-          const ox = j.x, oy = j.y;
+          // x only, like a link: a px-shifted (momentum-free) hinge step
+          // that the neighbouring links then undo leaves the px offset
+          // behind as velocity - 7 iterations of that pumped spine joints
+          // to 10-17k px/s while they barely moved
           j.x = p.x + vx * cs - vy * sn;
           j.y = p.y + vx * sn + vy * cs;
-          j.px += j.x - ox;
-          j.py += j.y - oy;
           continue;
         }
         if (c.a.gone || c.b.gone) continue;
@@ -103,8 +109,28 @@ export function createVerlet({ gravity = 2400, iterations = 7, damp = 0.99 } = {
       for (const p of pts) {
         if (p.gone) continue;
         if (p.pull) {
+          const ox = p.x, oy = p.y;
           p.x += (p.pull.x - p.x) * p.k;
           p.y += (p.pull.y - p.y) * p.k;
+          if (it == 0) {
+            // inherit the TARGET's velocity, not the chase displacement:
+            // teleporting x while holding px injected velocity every
+            // frame (idle limit cycle) — but zeroing it leaves limbs
+            // dead (throws, kicks, whip follow-through). A moving target
+            // throws the joint; a parked target adds nothing. Half the
+            // joint's own momentum survives so knockbacks stay live.
+            const vx0 = (ox - p.px) / lastDt, vy0 = (oy - p.py) / lastDt;
+            const tvx = p.pull.lx === undefined ? 0 : (p.pull.x - p.pull.lx) / lastDt;
+            const tvy = p.pull.ly === undefined ? 0 : (p.pull.y - p.pull.ly) / lastDt;
+            p.pull.lx = p.pull.x;
+            p.pull.ly = p.pull.y;
+            p.px = p.x - (vx0 * 0.5 + tvx) * lastDt;
+            p.py = p.y - (vy0 * 0.5 + tvy) * lastDt;
+          } else {
+            // later iterations converge without touching momentum
+            p.px += p.x - ox;
+            p.py += p.y - oy;
+          }
         }
         if (p.y > floor) {
           p.y = floor;

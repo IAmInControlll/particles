@@ -8,7 +8,7 @@
 <style>
   html, body { margin: 0; height: 100%; overflow: hidden; background: #0a0a0f; }
   canvas.pf-gl { position: fixed; inset: 0; width: 100vw; height: 100vh; }
-  #bg, #bodies { position: fixed; inset: 0; width: 100vw; height: 100vh; z-index: 0; pointer-events: none; }
+  #bg { position: fixed; inset: 0; width: 100vw; height: 100vh; z-index: 0; pointer-events: none; }
 
   #hud {
     position: fixed; top: 14px; left: 50%; transform: translateX(-50%);
@@ -19,11 +19,13 @@
   #hud .side { display: flex; flex-direction: column; gap: 4px; width: 220px; }
   #hud .side .name { font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: #5f7a80; }
   #hud .side.right { align-items: flex-end; }
-  #hud .bar { height: 5px; background: rgba(120,160,170,.18); border-radius: 3px; overflow: hidden; }
+  #hud .bar { align-self: stretch; height: 5px; background: rgba(120,160,170,.18); border-radius: 3px; overflow: hidden; }
   #hud .fill { height: 100%; width: 100%; border-radius: 3px; transition: width .25s; }
   #hud .side.left .fill { background: #7fd0ea; }
   #hud .side.right .fill { background: #f09a5a; }
-  #hud .mid { color: #5f7a80; font-size: 10px; letter-spacing: .18em; }
+  #hud .mid { color: #5f7a80; font-size: 10px; letter-spacing: .18em; display: flex; flex-direction: column; align-items: center; min-width: 120px; }
+  #hud #clock { font-size: 20px; line-height: 1.1; letter-spacing: .08em; color: #cfe0e3; min-height: 22px; }
+  #hud #clock.low { color: #f09a5a; }
 
   #loadout {
     position: fixed; inset: 0; z-index: 20;
@@ -77,13 +79,12 @@
 </head>
 <body>
 <canvas id="bg"></canvas>
-<canvas id="bodies"></canvas>
 <div id="hud">
   <div class="side left">
     <div class="name">you</div>
     <div class="bar"><div class="fill" id="mass0"></div></div>
   </div>
-  <div class="mid">fray</div>
+  <div class="mid"><div id="clock"></div><div id="streak">fray</div></div>
   <div class="side right">
     <div class="name">foe</div>
     <div class="bar"><div class="fill" id="mass1"></div></div>

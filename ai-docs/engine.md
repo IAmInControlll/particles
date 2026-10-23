@@ -84,6 +84,7 @@ event-horizon/heat color.
 | `leader`, `reserve` | u8 | init-set style flags |
 | `noFlock` | u8 | 1 = exempt from neighbor forces (rigid bodies) |
 | `noWell` | u8 | 1 = immune to all pointer wells - no repel, pull, or capture; the flag for particles that draw rather than interact |
+| `solid` | f32 | 0 = additive glow, 1 = opaque paint, in between mixes. Read only when `CFG.additive = false` (set at boot, or call `field.recompile()`). Opaque particles occlude in index order: lower index draws first, so allocate backgrounds low and foregrounds high |
 | `size` | f32 | per-particle size target (set 0 to despawn) |
 | `stag` | f32 | transition stagger depth |
 

@@ -3,7 +3,7 @@
 // bone segment (bone), a circle (ring), or a joint cluster (knot) and is
 // the single source of truth for hits, severs, and mass accounting.
 
-const TAU = Math.PI * 2;
+import { createSkin } from "./skin.js";
 
 // body plan, all lengths in field.unit - a real torso chain
 // (pelvis > waist > ribcage > neck > head), not a stick
@@ -21,33 +21,24 @@ const PROPORTIONS = {
 };
 
 // one row per body part; severTree maps a joint to the parts that die with it.
-// th is half-thickness as a fraction of unit - tapered for a human read:
-// ribcage wider than waist, thighs wider than shins.
+// Rows run back to front: solid particles paint in index order, so the
+// far leg and arm sit behind the trunk and the weapon arm in front.
+// Hands and boots belong to their forearm and shin. skin.js owns shapes.
 const PART_DEFS = [
-  { name: "head", type: "ring", ja: "head", n: 42, r: 0.13, gain: 1.1 },
-  { name: "belly", type: "bone", ja: "root", jb: "belly", n: 30, th: 0.075, gain: 0.95 },
-  { name: "ribcage", type: "bone", ja: "belly", jb: "chest", n: 40, th: 0.1, gain: 0.95 },
-  { name: "neck", type: "bone", ja: "chest", jb: "neck", n: 8, th: 0.045, gain: 0.9 },
-  { name: "collar", type: "bone", ja: "chest", jb: "sho", n: 16, th: 0.035, gain: 0.9 },
-  { name: "trapS", type: "bone", ja: "chest", jb: "shoS", n: 12, th: 0.03, gain: 0.8 },
-  { name: "upper", type: "bone", ja: "sho", jb: "elb", n: 26, th: 0.032, gain: 0.9 },
-  { name: "fore", type: "bone", ja: "elb", jb: "hand", n: 26, th: 0.028, gain: 0.9 },
-  { name: "upS", type: "bone", ja: "shoS", jb: "elbS", n: 22, th: 0.03, gain: 0.8 },
-  { name: "foreS", type: "bone", ja: "elbS", jb: "handS", n: 22, th: 0.028, gain: 0.8 },
-  { name: "kHandS", type: "knot", ja: "handS", n: 14, r: 0.022, gain: 0.95 },
-  { name: "thighF", type: "bone", ja: "root", jb: "kneeF", n: 32, th: 0.04, gain: 0.85 },
-  { name: "shinF", type: "bone", ja: "kneeF", jb: "footF", n: 29, th: 0.028, gain: 0.85 },
-  { name: "thighB", type: "bone", ja: "root", jb: "kneeB", n: 32, th: 0.04, gain: 0.7 },
-  { name: "shinB", type: "bone", ja: "kneeB", jb: "footB", n: 29, th: 0.028, gain: 0.7 },
-  { name: "kRoot", type: "knot", ja: "root", n: 16, r: 0.05, gain: 0.75 },
-  { name: "kChest", type: "knot", ja: "chest", n: 13, r: 0.028, gain: 1.05 },
-  { name: "kSho", type: "knot", ja: "sho", n: 11, r: 0.022, gain: 1.05 },
-  { name: "kElb", type: "knot", ja: "elb", n: 11, r: 0.02, gain: 1.05 },
-  { name: "kHand", type: "knot", ja: "hand", n: 16, r: 0.024, gain: 1.15 },
-  { name: "kKneeF", type: "knot", ja: "kneeF", n: 10, r: 0.02, gain: 0.9 },
-  { name: "kKneeB", type: "knot", ja: "kneeB", n: 10, r: 0.02, gain: 0.75 },
-  { name: "kFootF", type: "knot", ja: "footF", n: 11, r: 0.02, gain: 0.9 },
-  { name: "kFootB", type: "knot", ja: "footB", n: 11, r: 0.02, gain: 0.75 },
+  { name: "thighB", type: "bone", ja: "root", jb: "kneeB", n: 56 },
+  { name: "shinB", type: "bone", ja: "kneeB", jb: "footB", n: 44 },
+  { name: "trapS", type: "bone", ja: "chest", jb: "shoS", n: 8 },
+  { name: "upS", type: "bone", ja: "shoS", jb: "elbS", n: 26 },
+  { name: "foreS", type: "bone", ja: "elbS", jb: "handS", n: 30 },
+  { name: "thighF", type: "bone", ja: "root", jb: "kneeF", n: 56 },
+  { name: "shinF", type: "bone", ja: "kneeF", jb: "footF", n: 44 },
+  { name: "belly", type: "bone", ja: "root", jb: "belly", n: 46 },
+  { name: "ribcage", type: "bone", ja: "belly", jb: "chest", n: 62 },
+  { name: "neck", type: "bone", ja: "chest", jb: "neck", n: 10 },
+  { name: "head", type: "disc", ja: "head", n: 50 },
+  { name: "collar", type: "bone", ja: "chest", jb: "sho", n: 10 },
+  { name: "upper", type: "bone", ja: "sho", jb: "elb", n: 28 },
+  { name: "fore", type: "bone", ja: "elb", jb: "hand", n: 30 },
 ];
 
 // the duel's tuning table - combat dials a designer touches live here:
@@ -55,20 +46,24 @@ const PART_DEFS = [
 export const TUNE = {
   walkV: 2.6,          // *u - top walk speed
   accel: 16, brake: 22, // lerp rates toward target speed
-  stepTrig: 0.28,      // *u - stance drift that triggers a step
-  stepRate: 9,         // steps/s pace of a foot swing
-  stepLift: 0.12,      // *u - how high a stepping foot rises
+  stepTrig: 0.1,       // *u - how far the hips pass the rear foot before it steps
+  stepT: 0.18,         // s per foot swing
+  stepLift: 0.14,      // *u - how high a stepping foot rises
+  standH: 0.92,        // hip height as a fraction of leg length - soft knees
+  walkDip: 0.06,       // extra knee bend at full walk speed
+  handV: 2600,         // px/s the arm motor can carry the hand at full drive
+  hipK: 0.25,          // pelvis height hold - the buoyant torso floats it up to straight legs otherwise
   anchorK: 0.4,        // planted-foot pin strength
   pushK: 0.11,         // weight hint on plant - the root servo owns propulsion
-  jumpV: 1550,         // px/s takeoff impulse (buoyancy lowers net fall g)
+  jumpV: 1250,         // px/s takeoff impulse (air-damped buoyancy ~0.6g fall)
   jumpH: 380,          // px/s horizontal carry into a jump - D+W arcs diagonal
   airT: 0.35,          // s takeoff grace before ground clauses fire
   airVMax: 460,        // px/s cap on held-direction air steering
   stagK: 0.14,         // pull multiplier while staggered
   faintK: 0.12,        // pull multiplier while fainted
-  driveBase: 1.25,     // motor strength at wt 0, full tank
-  driveWt: 0.45,       // strength lost per unit weapon weight
-  driveMin: 0.22,      // strength floor - even a dying arm twitches
+  driveBase: 1.3,      // motor strength at wt 0, full tank
+  driveWt: 0.3,        // strength lost per unit weapon weight
+  driveMin: 0.3,       // strength floor - even a dying arm twitches
   stamPowLo: 0.4, stamPowHi: 0.6, // strength swing across the tank
   drainHot: 0.13,      // stam/s while above damage speed
   drainWork: 0.04,     // stam/s in the 150-450 work band
@@ -80,7 +75,7 @@ export const TUNE = {
   faintT: 1.6,         // s on the floor when the tank hits zero
   faintEnd: 0.35,      // tank level that lets the fighter stand
   dmgFloor: 320,       // px/s of hit power that deals nothing - grazes
-  killBase: 1.2, killRate: 280, killMax: 14, // particles per hit
+  killBase: 1.0, killRate: 350, killMax: 12, // particles per hit
   integHit: 0.35,      // flat integrity chew per landed hit
   integVel: 1600,      // px/s that adds 1 more point of integrity damage
   severKick: 320,      // px/s the freed limb gets knocked
@@ -90,7 +85,7 @@ export const TUNE = {
   buoy: { belly: -1.2, chest: -2.0, neck: -2.0, head: -2.4, sho: -0.4, shoS: -0.4 },
   footIm: 0.18,        // BB foot COM is a heavy ballast -> im ~1/6
   kneeIm: 0.35, rootIm: 0.5, armIm: 1.25,
-  leanForce: 18000,    // px/s^2 sideways head/chest force for walk lean
+  leanForce: 7000,     // px/s^2 sideways head/chest force for walk lean - 18000 capsized the buoyant torso (~2340px/s^2 ≈ 1g sideways vs soft spine hinges) into a walking face-plant
 };
 
 // joint -> parts that sever when its integrity hits zero
@@ -108,6 +103,9 @@ const SEVER_TREE = {
 // job to express, not an instant kill
 const SEVERABLE = { sho: 1, elb: 1, shoS: 1, elbS: 1, kneeF: 1, kneeB: 1 };
 
+// head or neck integrity below this fraction is a knockout
+const VITAL_KO = 0.45;
+
 // joints whose integrity can be damaged by hits (armor the rest)
 const HIT_JOINTS = ["head", "neck", "chest", "belly", "sho", "elb", "kneeF", "kneeB", "root"];
 
@@ -118,7 +116,6 @@ export function createPuppet(field, V, opts) {
   const weaponLo = opts.weaponLo;
   const hi = opts.hi;
   const shieldLo = opts.shieldLo;
-  const cols = opts.colors; // {body:[r,g,b], glow:[r,g,b]}
   const floor = opts.floor;
 
   const f = {
@@ -146,17 +143,16 @@ export function createPuppet(field, V, opts) {
     // set by damage.step while a strike slot is hot; consumed (and
     // cleared) by f.step so it can't go stale outside the fight state
     hotNow: false,
-    walkPhase: 0,
     vx: 0,
     // each foot is either planted at a world spot or mid-step toward a
     // new one - planted feet anchor the body so walking pushes instead
     // of skating
     feet: {
-      F: { px: opts.x + 0.16 * u, tx: 0, t: 1 },
-      B: { px: opts.x - 0.12 * u, tx: 0, t: 1 },
+      F: { px: opts.x + 0.16 * u, sx: 0, tx: 0, t: 1 },
+      B: { px: opts.x - 0.12 * u, sx: 0, tx: 0, t: 1 },
     },
     dying: [],
-    tint: cols.body, // painted-silhouette tint (painter.js)
+    floorY: floor,
     alive: new Uint8Array(hi - lo).fill(1),
     mass0: weaponLo - lo,
     mass: weaponLo - lo,
@@ -203,10 +199,27 @@ export function createPuppet(field, V, opts) {
     J.kneeF.im = J.kneeB.im = TUNE.kneeIm;
     J.root.im = TUNE.rootIm;
     J.elb.im = J.hand.im = J.elbS.im = J.handS.im = TUNE.armIm;
+    // BB rigidbodies carry linear/angular damping - without it every
+    // pose pull overshoots into a limit cycle and the torso churns
+    // forever. Heavy on the buoyant column, light on whipping arms.
+    J.belly.vd = J.chest.vd = 0.85;
+    J.neck.vd = J.head.vd = 0.88;
+    J.sho.vd = J.shoS.vd = 0.88;
+    J.root.vd = 0.9;
+    J.elb.vd = J.hand.vd = J.elbS.vd = J.handS.vd = 0.94;
+    J.handP.vd = J.handSP.vd = 0.92;
+    J.kneeF.vd = J.kneeB.vd = 0.94;
   };
 
   const BUOY_JOINTS = ["belly", "chest", "neck", "head", "sho", "shoS"];
   spawnJoints(opts.x);
+  // scratch axis points for the waist hinge - pinned under the pelvis in
+  // pose() so the spine's "up" is world-vertical, not feet-relative.
+  // Not in J: the joint-keyed loops (jump, floor pin, pull clear) must
+  // not treat them as body parts
+  f.wRefA = V.point(opts.x, floor);
+  f.wRefB = V.point(opts.x, floor);
+  f.wRefA.gs = f.wRefB.gs = 0;
 
   // joint limits: each hinge joint records which side of the parent
   // limb it was born bent toward. The clamp below refuses bends to the
@@ -237,12 +250,24 @@ export function createPuppet(field, V, opts) {
     const FLEX_MIN = TUNE.flexMin;
     if (h >= FLEX_MIN) return;
     const tgt = Math.abs(h) > Math.PI / 2 ? Math.PI - 0.12 : FLEX_MIN;
-    const rot = (tgt - h) * sign;
+    // the short way round, and only a little per frame: a wrong-side
+    // elbow snapped 2 rad in one go flung the hand ~100px, the arm pull
+    // dragged it straight back, and the pair flip-flopped every frame
+    let d = tgt - h;
+    if (d > Math.PI) d -= 2 * Math.PI;
+    else if (d < -Math.PI) d += 2 * Math.PI;
+    const rot = Math.max(-LIM_STEP, Math.min(LIM_STEP, d)) * sign;
     const cs = Math.cos(rot), sn = Math.sin(rot);
     const tx2 = b.x + vx * cs - vy * sn, ty2 = b.y + vx * sn + vy * cs;
-    c.px += tx2 - c.x; c.py += ty2 - c.y;
+    const ox = tx2 - c.x, oy = ty2 - c.y;
+    c.px += ox; c.py += oy;
     c.x = tx2; c.y = ty2;
+    // the hand proxy rides the wrist - leaving it behind stretched the
+    // wrist link 60px and the solver yanked the hand back next step
+    const pr = cn === "hand" ? J.handP : cn === "handS" ? J.handSP : null;
+    if (pr && !pr.free) { pr.x += ox; pr.y += oy; pr.px += ox; pr.py += oy; }
   };
+  const LIM_STEP = 0.3; // rad per frame
   f.limJoint = limJoint;
 
   f.cons = [
@@ -271,10 +296,14 @@ export function createPuppet(field, V, opts) {
     // (feet-mid -> root); each higher hinge continues the axis of the
     // one below, so a waist hunch carries the whole column like a
     // real spine instead of shearing at one joint.
-    f.waistCon = V.hinge(J.root, J.footF, J.footB, J.belly, 0.16, 0.55),
-    V.hinge(J.belly, J.root, J.root, J.chest, 0.13, 0.5),
-    V.hinge(J.chest, J.belly, J.belly, J.neck, 0.1, 0.45),
-    V.hinge(J.neck, J.chest, J.chest, J.head, 0.6, 0.35),
+    // the waist's "up" reference: scratch points pinned under the pelvis
+    // give a world-vertical axis. Anchoring to the feet-mid let trailing
+    // feet rotate the whole torso ~50deg during a walk - the spine was
+    // straight, the REFERENCE was tilted
+    f.waistCon = V.hinge(J.root, f.wRefA, f.wRefB, J.belly, 0.16, 0.85),
+    V.hinge(J.belly, J.root, J.root, J.chest, 0.13, 0.8),
+    V.hinge(J.chest, J.belly, J.belly, J.neck, 0.1, 0.75),
+    V.hinge(J.neck, J.chest, J.chest, J.head, 0.6, 0.55),
   ];
   // originals for reset: severing repoints link ends to chunk clones
   // and part endpoints to stumps - both must come back on a rearm
@@ -287,27 +316,24 @@ export function createPuppet(field, V, opts) {
 
   // ---- particle skin: assign [lo, weaponLo) across PART_DEFS ----
   // partOf indexes every particle to its part so hits can skip flesh
-  // that already lies severed on the floor
+  // that already lies severed on the floor. Counts scale to the slice
+  // so the body always fills it exactly.
   f.partOf = new Array(hi - lo).fill(null);
-  let cur = lo;
+  const sumN = PART_DEFS.reduce((t, d) => t + d.n, 0);
+  let cur = lo, acc = 0;
   for (const def of PART_DEFS) {
-    const part = { ...def, lo: cur, hi: cur + def.n, severed: false, ja0: def.ja, jb0: def.jb };
+    acc += def.n;
+    const end = lo + Math.round((acc * (weaponLo - lo)) / sumN);
+    const part = { ...def, n: end - cur, lo: cur, hi: end, severed: false, ja0: def.ja, jb0: def.jb };
     f.parts.push(part);
     f.part[def.name] = part;
     for (let p = part.lo; p < part.hi; p++) f.partOf[p - lo] = part;
-    cur = part.hi;
+    cur = end;
   }
-  // leftover body-range particles join the ribcage part
-  if (cur < weaponLo) f.part.ribcage.hi = weaponLo;
 
-  // fighters get big points: limbs read as strokes, not ambient sparks
-  for (const def of f.parts) {
-    const s = def.type === "knot" ? 2.5 : 2.3;
-    for (let p = def.lo; p < def.hi; p++) field.size[p] = s;
-  }
-  for (let p = weaponLo; p < hi; p++) field.size[p] = 2.2;
-
-  const size0 = field.size.slice(lo, hi);
+  const skin = createSkin(field, f, P);
+  f.setOutfit = skin.setOutfit;
+  const size0 = skin.size0;
   // per-joint integrity: small limb joints give way after a couple of
   // real cuts; the pelvis and chest take sustained damage before the
   // whole structure fails. Blunt hits chip this slower than edged ones.
@@ -325,6 +351,7 @@ export function createPuppet(field, V, opts) {
   const pull = (name, tx, ty, k) => {
     const j = J[name];
     if (!j || j.free) return; // a freed joint answers to physics only
+    if (!j.pull) { scratch[name].lx = undefined; scratch[name].ly = undefined; } // fresh pull: no phantom target velocity
     j.pull = scratch[name];
     j.pull.x = tx;
     j.pull.y = ty;
@@ -345,6 +372,20 @@ export function createPuppet(field, V, opts) {
   // limb well before the joint actually lets go
   const armK = (jn) => 0.35 + 0.65 * Math.min(1, f.integrity[jn] / (INTEG0[jn] * 0.5));
 
+  // the arm drives a point that chases the cursor at a speed the arm can
+  // actually produce - weight and an empty tank slow it. Pulling the
+  // proxy straight at a cursor that jumps 200px (a flick, a synthetic
+  // input) moved the hand 200px in one solver step: 12000px/s.
+  f.handT = { x: 0, y: 0 };
+  f.handTS = { x: 0, y: 0 };
+  const chase = (T, from, tx, ty, drive, dt, cold) => {
+    if (cold) { T.x = from.x; T.y = from.y; }
+    const dx = tx - T.x, dy = ty - T.y, d = Math.hypot(dx, dy);
+    const step = TUNE.handV * drive * dt;
+    if (d <= step) { T.x = tx; T.y = ty; }
+    else { T.x += (dx / d) * step; T.y += (dy / d) * step; }
+  };
+
   // ---- pose: intent -> joint pull targets ----
   function pose(dt, env) {
     const floor = env.floor;
@@ -357,8 +398,19 @@ export function createPuppet(field, V, opts) {
     const legK = legKFactor();
     // landing weight: brief dip as the stance catches the fall
     const dip = f.landT > 0 ? (f.landT / 0.25) * 0.16 : 0;
-    const stance = (crouch ? 0.42 : 1 - dip) * legK;
     const rootV = V.vel(J.root);
+    // hip speed for the gait from real frame-to-frame travel: the verlet
+    // velocity of a pulled joint is not its motion - the pull drags it
+    // forward momentum-free while the leg links bill it backward, so a
+    // walking root read ~-3000px/s and the gait stepped the wrong way
+    const rxNow = J.root.x;
+    const rvRaw = f.rxLast === undefined || dt <= 0 ? 0 : (rxNow - f.rxLast) / dt;
+    f.rxLast = rxNow;
+    f.rvSm = (f.rvSm || 0) + (rvRaw - (f.rvSm || 0)) * Math.min(1, dt * 10);
+    // soft knees: straight legs can't put a foot anywhere but under the
+    // hip, so a standing body could only ever drag its feet
+    const stride = Math.min(1, Math.abs(f.rvSm) / (TUNE.walkV * u));
+    const stance = (crouch ? 0.42 : TUNE.standH - TUNE.walkDip * stride - dip) * legK;
     // lean is smoothed hard: raw rootV.x oscillates ±900px/s at rest and
     // feeding it into the pull targets drags the whole skeleton with the
     // jitter - a self-amplifying loop. The visual lean only needs walk
@@ -372,16 +424,26 @@ export function createPuppet(field, V, opts) {
     const vmax = TUNE.walkV * u * (crouch ? 0.55 : 1);
     f.vx += (mv * vmax - f.vx) * Math.min(1, dt * (mv !== 0 ? TUNE.accel : TUNE.brake));
     f.x = Math.max(env.wallL + 0.3 * u, Math.min(env.wallR - 0.3 * u, f.x + f.vx * dt));
+    // the stance target stays within leg reach of the pelvis: an
+    // unbounded lead drags the torso over its anchored feet into a
+    // cartwheel. The servo owns speed; f.x only places the stance.
+    if (f.grounded && !faint) {
+      const lead = 0.35 * u;
+      f.x = Math.max(J.root.x - lead, Math.min(J.root.x + lead, f.x));
+    }
 
     const air = !f.grounded;
     if (!air && !faint) {
       // locomotion authority lives in the hips: a velocity servo tracks
-      // f.vx inside ~3 frames. Before this, propulsion came from plant
-      // pushes - every step was a surge and the root pulsed +-90px/s.
-      // The chest takes a lighter share so the drive spreads through
-      // the torso instead of one point fighting the anchored feet
-      V.impulse(J.root, (f.vx - rootV.x) * 0.45, 0);
-      V.impulse(J.chest, (f.vx - V.vel(J.chest).x) * 0.25, 0);
+      // f.vx. It must converge gently - an instant velocity match slams
+      // the pelvis past the anchored feet and the body cartwheels over
+      // them (the step system's job is to keep the legs under, not to
+      // catch a thrown pelvis). ~0.35s convergence is walk feel.
+      const drive = Math.max(-140, Math.min(140, (f.vx - rootV.x) * 0.18));
+      V.impulse(J.root, drive, 0);
+      // the chest gets only a whisper of the same servo - a full share
+      // drives the buoyant top ahead of the pelvis and folds the spine
+      V.impulse(J.chest, (f.vx - V.vel(J.chest).x) * 0.03, 0);
     }
     if (air) {
       // coherence damp: bleed every joint's velocity toward the root's
@@ -442,32 +504,39 @@ export function createPuppet(field, V, opts) {
     // instead of leaning on mass-5 feet forever
     const gapX = air ? 0 : f.x - J.root.x;
     const catchK = Math.min(0.2, (Math.abs(gapX) / (0.5 * u)) * 0.2);
-    if (!air) pull("root", rx, floor - legLen() * stance, (0.13 + catchK) * kMul);
+    if (!air) pull("root", rx, floor - legLen() * stance, (TUNE.hipK + catchK) * kMul);
 
     // the torso stands by buoyancy, not a pose servo (BB evidence:
     // belly -2g, chest/neck/head -5g, no upright controller). A faint
     // zeroes the float so the body can fall; a stagger half-sinks it.
     // Airborne it keeps working - the chest wants to be on top, which
     // is what rights a knocked-down fighter mid-tumble.
-    const buoyMul = faint ? 0 : stag ? 0.45 : 1;
+    // in the air the buoyancy half-damps: torso still wants the top
+    // (righting torque is what lands a fighter on its feet) but the
+    // body's net weight returns toward 1g instead of hanging
+    const buoyMul = faint ? 0 : stag ? 0.45 : air ? 0.35 : 1;
     for (const jn of BUOY_JOINTS) J[jn].gs = 1 + (J[jn].gsBase - 1) * buoyMul;
     // lean is a sideways force on the floating torso (BB headForce*),
     // not a position target - the body tilts as a balance response
     const hunch = crouch ? 0.16 : 0.05;
     const lx = air ? 0 : lean;
+    // pin the waist axis under the pelvis each frame - world-vertical.
+    // A faint or hard stagger loosens the hinge so a real knockdown can
+    // still fold the column instead of the torso floating eerily upright
+    f.wRefA.x = f.wRefA.px = f.wRefB.x = f.wRefB.px = J.root.x;
+    f.wRefA.y = f.wRefA.py = J.root.y + 0.3 * u;
+    f.wRefB.y = f.wRefB.py = J.root.y + 0.6 * u;
+    f.waistCon.stiff = faint || stag ? 0.2 : 0.85;
     f.waistCon.center = s * (hunch + lx) * 0.55;
-    const leanF = s * (hunch + lx) * TUNE.leanForce * dt * buoyMul;
+    const leanF = s * (hunch + lx * 0.5) * TUNE.leanForce * dt * buoyMul;
     V.impulse(J.chest, leanF, 0);
     V.impulse(J.head, leanF * 0.6, 0);
     const baseY = J.root.y;
     const aK = air ? 0 : 1;
 
     // legs
-    const speed = Math.abs(rootV.x);
-    if (mv !== 0 && !air) f.walkPhase += dt * (5 + speed * 0.012);
+    const speed = Math.abs(f.rvSm);
     const sw = Math.min(1, speed / (0.9 * u)) * (mv !== 0 ? 1 : 0.4);
-    const stride = 0.3 * u * sw;
-    const lift = 0.1 * u * sw;
     // crouch needs a wide base: feet at ±0.5u let the legs Z-fold and
     // the root actually sinks - a narrow crouch stance keeps the legs
     // near-straight and the body physically cannot drop
@@ -478,67 +547,81 @@ export function createPuppet(field, V, opts) {
     const fLeg = !(f.part.shinF.severed || f.part.thighF.severed);
     const bLeg = !(f.part.shinB.severed || f.part.thighB.severed);
     if (f.kickT > 0 && fLeg && !faint) {
-      // kick: front leg spears forward
-      pull("footF", rx + s * 0.62 * u, floor - 0.14 * u, 0.5);
-      pull("kneeF", rx + s * 0.34 * u, floor - 0.34 * u, 0.3);
+      // kick: front leg spears forward. 0.62u barely bent the knee -
+      // a real thrust kick extends to near full leg (1.17u): foot to
+      // shin height, knee onto the root->foot line so the leg straightens
+      pull("footF", rx + s * 0.95 * u, floor - 0.5 * u, 0.55);
+      pull("kneeF", rx + s * 0.48 * u, floor - 0.78 * u, 0.35);
       if (bLeg) {
         pull("footB", rx + stB, floor, 0.16 * kMul);
         pull("kneeB", (J.root.x + rx + stB) / 2 - s * 0.04 * u, (J.root.y + floor) / 2, 0.08 * kMul);
       }
     } else if (!air) {
-      // planted-foot stepping: a foot holds a fixed world spot and the
-      // body drags around it; when the stance outruns a foot it lifts,
-      // swings to the new spot ahead of the target, and plants with a
-      // push. Alternation keeps one anchor down except mid-stumble.
+      // a gait, not a tow: while the hips travel, the TRAILING foot lifts
+      // and swings to where the hips will be at touchdown plus half a
+      // stride (capture-point placement), so the feet keep landing under
+      // the pelvis. The old drift trigger only fired once a foot was far
+      // behind, and the spot it aimed for was past leg reach - both feet
+      // ended up towed behind the hips in one stiff diagonal.
       const bend = (crouch ? 0.55 : 0.03 + 0.05 * sw) * u;
       const kKnee = 0.08 * kMul * (crouch ? 1.6 : 1);
-      // stance spots track the BODY (root.x), not the move target - a
-      // foot anchored to an rx the body hasn't reached yet props the
-      // hips up on stretched legs and the fighter walks on stilts
+      // a knocked body steps too - catching the stumble is a step
+      const dir = Math.abs(f.rvSm) > 0.45 * u ? Math.sign(f.rvSm) : mv !== 0 ? Math.sign(f.vx) || mv : 0;
+      const stepT = crouch ? TUNE.stepT * 1.4 : TUNE.stepT;
+      const reachX = legLen() * (crouch ? 0.7 : 0.42);
       const stSpots = { F: J.root.x + stF, B: J.root.x + stB };
+      f.settleT = dir ? 0 : (f.settleT || 0) + dt;
       for (const [fk, jn, kn] of [["F", "footF", "kneeF"], ["B", "footB", "kneeB"]]) {
         const legOk = fk === "F" ? fLeg : bLeg;
         if (!legOk) continue;
         const ft = f.feet[fk];
-        const want = stSpots[fk];
-        // trigger: the plant spot is too far behind/ahead of where the
-        // stance wants it - lift and re-plant. The other foot must be
-        // down unless the body is being thrown around anyway.
         const other = f.feet[fk === "F" ? "B" : "F"];
-        // idle deadband is far wider: sway -> replant -> anchor drag is a
-        // limit cycle that vibrates the whole skeleton at rest. Feet only
-        // re-plant when genuinely displaced or when actually walking.
-        const deadband = (mv !== 0 || stag ? TUNE.stepTrig : 0.55) * u;
-        if (ft.t >= 1 && Math.abs(want - ft.px) > deadband && (other.t >= 1 || stag)) {
-          // clamp the plant to leg reach - a spot the chain can't touch
-          // leaves the foot hovering on its own anchor like a stilt
-          const maxR = legLen() * 0.8;
-          ft.tx = Math.max(J.root.x - maxR, Math.min(J.root.x + maxR, want + f.vx * 0.12));
-          ft.t = 0;
+        const otherOk = fk === "F" ? bLeg : fLeg;
+        if (ft.t >= 1 && (other.t >= 1 || !otherOk)) {
+          let go = false;
+          if (dir) {
+            // the rear foot in the travel direction goes once the hips
+            // have passed it; a lone leg hops whenever it trails
+            const behind = (J.root.x - ft.px) * dir;
+            const rear = !otherOk || (other.px - ft.px) * dir >= 0;
+            go = rear && behind > TUNE.stepTrig * u;
+          } else if (f.settleT > 0.2) {
+            // settled: feet walk back to the fighting stance one at a
+            // time. Only a real displacement replants - sway -> replant
+            // -> anchor drag is a limit cycle that vibrates a still body
+            go = Math.abs(stSpots[fk] - ft.px) > 0.16 * u;
+          }
+          if (go) {
+            ft.sx = J[jn].x;
+            ft.t = 0;
+          }
         }
         if (ft.t < 1) {
-          ft.t = Math.min(1, ft.t + dt * (crouch ? 4.5 : TUNE.stepRate));
+          ft.t = Math.min(1, ft.t + dt / stepT);
+          // re-aimed every frame so the plant tracks the body's real speed
+          const rem = (1 - ft.t) * stepT;
+          const v = f.rvSm;
+          const want = dir ? J.root.x + v * rem + dir * Math.abs(v) * stepT * 0.5 : stSpots[fk];
+          ft.tx = Math.max(J.root.x - reachX, Math.min(J.root.x + reachX + Math.abs(v) * rem, want));
+          const e = ft.t * ft.t * (3 - 2 * ft.t);
           const k2 = Math.sin(ft.t * Math.PI); // lift arc over the step
-          pull(jn, ft.px + (ft.tx - ft.px) * ft.t, floor - k2 * TUNE.stepLift * u, 0.3 * kMul);
+          pull(jn, ft.sx + (ft.tx - ft.sx) * e, floor - k2 * TUNE.stepLift * u, 0.5 * kMul);
           if (ft.t >= 1) {
-            ft.px = ft.tx;
-            // plant push is only a weight hint now - the root servo
-            // owns propulsion; a full pushK shove was the walk surge
+            ft.px = J[jn].x; // the foot plants where it landed, not where it aimed
+            // plant push is only a weight hint - the root servo owns
+            // propulsion; a full pushK shove was the walk surge
             V.impulse(J.root, f.vx * TUNE.pushK, 0);
           }
         } else {
-          // planted: pin it horizontally only - the floor clamp and
-          // gravity already hold y, and a vertical pull through the
-          // rigid leg pushes the body UP like a pole vault. While
-          // walking the plant slides at a fraction of body speed -
-          // traction, not a stake: a hard pin makes the servo drag
-          // mass-5 feet and the walk crawls (measured 80px/s).
-          if (mv !== 0) ft.px += f.vx * dt * 0.85;
-          pull(jn, ft.px, J[jn].y, TUNE.anchorK * kMul);
+          // planted: anchor to the floor spot in 2D - a planted foot is an
+          // anchor, not a sled
+          const brace = f.braceT > 0;
+          pull(jn, ft.px, floor, (brace ? 0.6 : TUNE.anchorK) * kMul);
         }
-        pull(kn, (J.root.x + J[jn].x) / 2 + s * bend, (J.root.y + J[jn].y) / 2 + 0.02 * u, kKnee);
+        // a swinging leg folds at the knee so the foot clears the floor
+        const swing = ft.t < 1 ? Math.sin(ft.t * Math.PI) * 0.1 * u : 0;
+        pull(kn, (J.root.x + J[jn].x) / 2 + s * (bend + swing), (J.root.y + J[jn].y) / 2 + 0.02 * u, kKnee * (f.braceT > 0 ? 2.2 : 1) * (swing ? 1.6 : 1));
       }
-      f.walkPhase += Math.abs(f.vx) * dt * 0.09;
     }
 
     // armed arm: aim target inside the reach envelope around the shoulder
@@ -546,28 +629,34 @@ export function createPuppet(field, V, opts) {
     // a severed arm takes no pulls - dragging a freed joint to the aim
     // point flings the chunk across the arena like a zombie hand
     const armDead = f.part.fore.severed || f.part.upper.severed;
-    if (f.intent.aimOn && !faint && !armDead) {
+    const aimOn = f.intent.aimOn && !faint && !armDead;
+    const aimCold = !f.aimWas;
+    f.aimWas = aimOn;
+    if (aimOn) {
       const sx = J.sho.x, sy = J.sho.y;
-      let dx = f.intent.aim.x - sx, dy = f.intent.aim.y - sy;
-      const d = Math.hypot(dx, dy) || 1e-4;
-      if (d > reach) { dx *= reach / d; dy *= reach / d; }
-      if (d < 0.12 * u) { dx *= (0.12 * u) / d; dy *= (0.12 * u) / d; }
-      const hx = sx + dx, hy = sy + dy;
       const wArm = armK("elb");
       // the arm is a limited motor: weapon weight drags the drive down
       // and a near-empty tank leaves real strength on the table
       const wt = f.W && f.W.spec ? f.W.spec.wt : 0.5;
       const drive = Math.max(TUNE.driveMin, (TUNE.driveBase - wt * TUNE.driveWt) * (TUNE.stamPowLo + TUNE.stamPowHi * f.stam));
+      chase(f.handT, J.handP, f.intent.aim.x, f.intent.aim.y, drive, dt, aimCold);
+      let dx = f.handT.x - sx, dy = f.handT.y - sy;
+      const d = Math.hypot(dx, dy) || 1e-4;
+      if (d > reach) { dx *= reach / d; dy *= reach / d; }
+      if (d < 0.12 * u) { dx *= (0.12 * u) / d; dy *= (0.12 * u) / d; }
+      const hx = sx + dx, hy = sy + dy;
       const gripK = (f.intent.grip ? 0.26 : 0.14) * wArm * drive;
       // the proxy takes the drive; the wrist link drags the arm behind
       // it, so a heavy head lags and loads the tank like real weight
-      J.handP.im = 2.4 / (0.55 + wt);
+      J.handP.im = 0.25 + wt * 0.15;
       pull("handP", hx, hy, gripK * kMul);
       pull("hand", hx, hy, gripK * kMul * 0.35);
-      // elbow bends down-and-back like a real arm
+      // elbow bends down-and-back like a real arm - but the bias
+      // collapses at full reach so a committed strike can straighten
       let nx = -dy / d, ny = dx / d;
       if (ny - nx * s < 0) { nx = -nx; ny = -ny; }
-      pull("elb", sx + dx * 0.5 + nx * d * 0.32, sy + dy * 0.5 + ny * d * 0.32, 0.1 * kMul * wArm);
+      const eb = 0.32 * (1 - Math.min(1, d / reach));
+      pull("elb", sx + dx * 0.5 + nx * d * eb, sy + dy * 0.5 + ny * d * eb, 0.1 * kMul * wArm);
     } else if (!armDead) {
       // idle: weapon hand cocked back at the shoulder, elbow tucked -
       // a fighter's ready pose, not arms at face height
@@ -584,15 +673,23 @@ export function createPuppet(field, V, opts) {
     const wt2 = f.dual && f.W2 && f.W2.spec ? f.W2.spec.wt : f.shieldOn ? 0.7 : 0.5;
     const driveS = Math.max(TUNE.driveMin, (TUNE.driveBase - wt2 * TUNE.driveWt) * (TUNE.stamPowLo + TUNE.stamPowHi * f.stam));
     const armDeadS = f.part.foreS.severed || f.part.upS.severed;
-    if (f.intent.sOn && !faint && !armDeadS) {
-      let dx = f.intent.sAim.x - sx, dy = f.intent.sAim.y - sy;
+    const sOn = f.intent.sOn && !faint && !armDeadS;
+    const sCold = !f.sAimWas;
+    f.sAimWas = sOn;
+    if (sOn) {
+      chase(f.handTS, J.handSP, f.intent.sAim.x, f.intent.sAim.y, driveS, dt, sCold);
+      let dx = f.handTS.x - sx, dy = f.handTS.y - sy;
       const d = Math.hypot(dx, dy) || 1e-4;
       if (d > sReach) { dx *= sReach / d; dy *= sReach / d; }
       if (d < 0.1 * u) { dx *= (0.1 * u) / d; dy *= (0.1 * u) / d; }
-      J.handSP.im = 2.4 / (0.55 + wt2);
+      // the proxy must outweigh the hand: if im > handS.im the wrist
+      // link yanks the PROXY back instead of dragging the arm forward -
+      // the cursor chases a feather and the hand never leaves guard
+      J.handSP.im = 0.25 + wt2 * 0.15;
       pull("handSP", sx + dx, sy + dy, 0.2 * kMul * wArmS * driveS);
       pull("handS", sx + dx, sy + dy, 0.2 * kMul * wArmS * driveS * 0.35);
-      pull("elbS", sx + dx * 0.45 - dy * 0.18, sy + dy * 0.45 + dx * 0.18, 0.1 * kMul * wArmS * driveS);
+      const ebS = 1 - Math.min(1, d / sReach);
+      pull("elbS", sx + dx * 0.45 - dy * 0.18 * ebS, sy + dy * 0.45 + dx * 0.18 * ebS, 0.1 * kMul * wArmS * driveS);
     } else if (f.shieldOn || f.dual) {
       // guarded idle: buckler or second weapon held over the chest line
       pull("handS", rx + s * 0.22 * u, sy + 0.14 * u, 0.1 * kMul * aK);
@@ -606,78 +703,9 @@ export function createPuppet(field, V, opts) {
   }
 
   // ---- skin write ----
-  const hot = [1.0, 0.72, 0.35];
-  const steel = [0.72, 0.78, 0.86];
-  function writeHomes() {
-    const home = field.home, hcol = field.hcol;
-    if (f.shieldOn) {
-      // buckler: a tall C band bowed out toward the foe, opening back
-      // onto the body - a bright rim arc plus a sparse inner face
-      const s = f.side, sh = f.shield;
-      const rr = 0.34 * u;
-      for (let p = f.shieldLo; p < hi; p++) {
-        const i = p * 3;
-        const rim = field.h1(p) < 0.62;
-        const a = (field.h2(p) - 0.5) * 2.5; // +-1.25 rad around facing
-        const r = rim
-          ? rr * (0.94 + field.h3(p) * 0.08)
-          : rr * Math.sqrt(field.h3(p)) * 0.8;
-        home[i] = sh.x + Math.cos(a) * r * s;
-        home[i + 1] = sh.y + Math.sin(a) * r * 1.15;
-        home[i + 2] = (field.h3(p) - 0.5) * 4;
-        const m = (0.6 + 0.5 * field.h3(p)) * (rim ? 1.2 : 0.7);
-        hcol[i] = steel[0] * m;
-        hcol[i + 1] = steel[1] * m;
-        hcol[i + 2] = steel[2] * m;
-      }
-    }
-    for (const pt of f.parts) {
-      // severed parts still render - they ride the freed joints down as
-      // debris until their decay timer dissolves them
-      const g = pt.gain * (pt.severed ? 0.45 : 1);
-      if (pt.type === "bone") {
-        const A = J[pt.ja], B = J[pt.jb];
-        const dx = B.x - A.x, dy = B.y - A.y;
-        const d = Math.hypot(dx, dy) || 1e-4;
-        const px = (-dy / d) * (pt.th || 0) * u, py = (dx / d) * (pt.th || 0) * u;
-        for (let p = pt.lo; p < pt.hi; p++) {
-          if (!f.alive[p - lo]) continue;
-          const t = (p - pt.lo) / (pt.hi - pt.lo - 1 || 1);
-          const o = field.h2(p) * 2 - 1;
-          const i = p * 3;
-          home[i] = A.x + dx * t + px * o;
-          home[i + 1] = A.y + dy * t + py * o;
-          home[i + 2] = (field.h3(p) - 0.5) * 6;
-          const m = (0.42 + 0.3 * field.h3(p)) * g;
-          hcol[i] = cols.body[0] * m;
-          hcol[i + 1] = cols.body[1] * m;
-          hcol[i + 2] = cols.body[2] * m;
-        }
-      } else {
-        const A = J[pt.ja];
-        const R = pt.r * u;
-        for (let p = pt.lo; p < pt.hi; p++) {
-          if (!f.alive[p - lo]) continue;
-          const i = p * 3;
-          if (pt.type === "ring") {
-            const a = ((p - pt.lo) / pt.n) * TAU + field.h1(p) * 0.4;
-            const r = R * (0.8 + 0.35 * field.h3(p));
-            home[i] = A.x + Math.cos(a) * r;
-            home[i + 1] = A.y + Math.sin(a) * r;
-          } else {
-            const a = field.h1(p) * TAU;
-            const r = R * Math.sqrt(field.h2(p));
-            home[i] = A.x + Math.cos(a) * r;
-            home[i + 1] = A.y + Math.sin(a) * r;
-          }
-          home[i + 2] = (field.h3(p) - 0.5) * 6;
-          const m = (0.45 + 0.27 * field.h3(p)) * g;
-          hcol[i] = cols.body[0] * m;
-          hcol[i + 1] = cols.body[1] * m;
-          hcol[i + 2] = cols.body[2] * m;
-        }
-      }
-    }
+  function writeHomes(dt) {
+    if (f.shieldOn) skin.writeShield();
+    skin.write(dt);
   }
 
   // ---- kill / sever ----
@@ -688,10 +716,7 @@ export function createPuppet(field, V, opts) {
     field.homed[p] = 0;
     field.vel[i] += dirx * imp + (field.h1(p) - 0.5) * imp * 1.6;
     field.vel[i + 1] += diry * imp + (field.h2(p) - 0.5) * imp * 1.6 - imp * 0.4;
-    const m = 0.9 + field.h3(p) * 0.6;
-    field.hcol[i] = hot[0] * m;
-    field.hcol[i + 1] = hot[1] * m;
-    field.hcol[i + 2] = hot[2] * m;
+    skin.bleed(p);
     f.dying.push({ p, at: field.T + 1.2 + field.h1(p) * 1.4 });
   };
 
@@ -852,7 +877,7 @@ export function createPuppet(field, V, opts) {
     }
     // head bites deepest, core next, limbs least - the bar is the only
     // life track, so a zone multiplier is how placement matters
-    const ZONE_DMG = { head: 1.7, neck: 1.4, chest: 1.25, belly: 1.15, root: 1.15 };
+    const ZONE_DMG = { head: 1.45, neck: 1.35, chest: 1.25, belly: 1.15, root: 1.15 };
     let zone = null, zd = r2;
     for (const jn of HIT_JOINTS) {
       const j = J[jn];
@@ -876,11 +901,13 @@ export function createPuppet(field, V, opts) {
     }
 
     // knockback tracks damage dealt, always: a graze nudges, a slam
-    // shoves - and only a real hit earns stagger
+    // shoves - and only a real hit earns stagger. The contact solver
+    // already hands the struck bone the blow's momentum, so this is the
+    // BB knockbackPerDamage on top, not the whole shove
     const blunt = 1 + (1 - cut) * 0.6; // crushing hits shove harder
-    V.impulse(J.root, dirx * eff * 0.22 * blunt, diry * eff * 0.22 * blunt);
-    V.impulse(J.chest, dirx * eff * 0.3 * blunt, diry * eff * 0.3 * blunt);
-    if (power > 520) f.staggerT = Math.max(f.staggerT, 0.3 + (eff / 2600) * blunt);
+    V.impulse(J.root, dirx * eff * 0.12 * blunt, diry * eff * 0.12 * blunt);
+    V.impulse(J.chest, dirx * eff * 0.16 * blunt, diry * eff * 0.16 * blunt);
+    if (power > 520) f.staggerT = Math.max(f.staggerT, Math.min(1.1, 0.3 + (eff / 2600) * blunt));
     return { killed, severed };
   };
 
@@ -910,13 +937,24 @@ export function createPuppet(field, V, opts) {
     V.impulse(J[e], dirx * 320, diry * 320);
   };
 
-  f.dead = () => f.mass < f.mass0 * 0.4;
+  // why the fighter is out of the round, or null while still in it.
+  // Health is how much of you is left; a wrecked head or a body that can
+  // no longer stand or hold anything also ends it before the mass does.
+  f.out = () => {
+    if (f.mass < f.mass0 * 0.4) return "bled";
+    if (f.integrity.head < INTEG0.head * VITAL_KO || f.integrity.neck < INTEG0.neck * VITAL_KO) return "head";
+    if (f.part.shinF.severed && f.part.shinB.severed) return "legs";
+    if ((f.part.upper.severed || f.part.fore.severed) && (f.part.upS.severed || f.part.foreS.severed)) return "arms";
+    return null;
+  };
+  f.dead = () => f.out() !== null;
 
   f.step = (dt, env) => {
     const floor = env.floor;
     f.staggerT = Math.max(0, f.staggerT - dt);
     f.kickT = Math.max(0, f.kickT - dt);
     f.landT = Math.max(0, f.landT - dt);
+    f.braceT = Math.max(0, (f.braceT || 0) - dt);
     f.airT = Math.max(0, (f.airT || 0) - dt);
     // exertion pauses recovery - the tank refills at rest, fast while
     // floored, and the fighter stays down until it reaches 0.35
@@ -1009,6 +1047,7 @@ export function createPuppet(field, V, opts) {
       f.airT <= 0 && (fp > floor - 10 || J.root.y > standH - 0.3 * u);
     if (wasAir && f.grounded) {
       f.landT = 0.25;
+      f.braceT = 0.45;
       f.airLag = J.root.y;
       // touchdown re-plants both feet under the body - spots left from
       // takeoff sit behind the landing and the taut leg slings the
@@ -1038,7 +1077,6 @@ export function createPuppet(field, V, opts) {
     // a severed off-arm can't hold a buckler - the face drops with it
     sh.active = f.shieldOn && !f.dead() && !faint &&
       !(f.part.upS.severed || f.part.foreS.severed);
-    writeHomes();
     for (let i = f.dying.length - 1; i >= 0; i--)
       if (field.T >= f.dying[i].at) {
         field.size[f.dying[i].p] = 0;
@@ -1050,6 +1088,8 @@ export function createPuppet(field, V, opts) {
   };
 
   f.face = (s) => (f.side = s);
+  f.V = V; // probe handle, like window.__fray
+  f.writeHomes = writeHomes;
 
   f.setShield = (v) => {
     f.shieldOn = v === "buckler";

@@ -36,6 +36,8 @@ export function createField(opts = {}) {
   const reserve = new Uint8Array(N);
   const noFlock = new Uint8Array(N); // 1 = exempt from neighbor forces
   const noWell = new Uint8Array(N); // 1 = immune to all pointer wells
+  // 0 = additive glow, 1 = opaque paint; only read when CFG.additive is false
+  const solid = new Float32Array(N);
   const size = new Float32Array(N);
   const sz = new Float32Array(N).fill(1);
   const stag = new Float32Array(N);
@@ -57,7 +59,7 @@ export function createField(opts = {}) {
 
   Object.assign(field, {
     pos, vel, col, home, hcol, homed, snap, capt,
-    leader, reserve, size, sz, stag, noFlock, noWell,
+    leader, reserve, size, sz, stag, noFlock, noWell, solid,
     extraWells: [], // remote/synthetic cursors {x, y, down, tint?} get the same physics as mouse
     exclude: [],
     drift: { x: innerWidth * 0.7, y: innerHeight * 0.5 },
@@ -77,16 +79,16 @@ export function createField(opts = {}) {
     gl.compileShader(sh);
     return sh;
   };
-  let prog, bufP, bufC, bufS, uR, uPt, uCore, uFade;
+  let prog, bufP, bufC, bufS, bufO, uR, uPt, uCore, uFade;
   const initGL = () => {
     prog = gl.createProgram();
     gl.attachShader(
       prog,
       compile(
         gl.VERTEX_SHADER,
-        `attribute vec3 aP; attribute vec3 aC; attribute float aS;
+        `attribute vec3 aP; attribute vec3 aC; attribute float aS;${C.additive ? "" : " attribute float aO; varying float vO;"}
          uniform vec2 uR; uniform float uPt; varying vec3 vC; varying float vD;
-         void main(){
+         void main(){${C.additive ? "" : " vO = aO;"}
            float d = ${F(C.perspZ)} / max(${F(C.perspMin)}, ${F(C.perspZ)} - aP.z);
            gl_Position = vec4(aP.x / uR.x * 2.0 - 1.0, 1.0 - aP.y / uR.y * 2.0, 0.0, 1.0);
            gl_PointSize = max(${F(C.pointMinPx)}, aS * uPt * d);
@@ -99,7 +101,8 @@ export function createField(opts = {}) {
       prog,
       compile(
         gl.FRAGMENT_SHADER,
-        `precision mediump float; varying vec3 vC; varying float vD;
+        C.additive
+          ? `precision mediump float; varying vec3 vC; varying float vD;
          uniform float uCore; uniform float uFade;
          void main(){
            float r = length(gl_PointCoord - 0.5);
@@ -108,6 +111,21 @@ export function createField(opts = {}) {
            float core = smoothstep(0.22, 0.0, r) * uCore;
            float fade = mix(uFade, 1.0, clamp((vD - 0.85) / 0.3, 0.0, 1.0));
            gl_FragColor = vec4(vC * (a + core) * fade, a * fade);
+         }`
+          : // premultiplied blend: alpha 0 adds light (glow), alpha 1
+            // paints over what is below (solid). Draw order = index order.
+            `precision mediump float; varying vec3 vC; varying float vD; varying float vO;
+         uniform float uCore; uniform float uFade;
+         void main(){
+           float r = length(gl_PointCoord - 0.5);
+           if (r > 0.5) discard;
+           float a = smoothstep(0.5, 0.0, r);
+           float core = smoothstep(0.22, 0.0, r) * uCore;
+           float fade = mix(uFade, 1.0, clamp((vD - 0.85) / 0.3, 0.0, 1.0));
+           float cov = smoothstep(0.5, 0.4, r);
+           vec3 glow = vC * (a + core) * fade;
+           vec3 paint = vC * fade * cov;
+           gl_FragColor = vec4(mix(glow, paint, vO), cov * vO);
          }`
       )
     );
@@ -125,12 +143,14 @@ export function createField(opts = {}) {
     bufP = attr(pos, "aP", 3);
     bufC = attr(col, "aC", 3);
     bufS = attr(drawSize, "aS", 1);
+    bufO = C.additive ? null : attr(solid, "aO", 1);
     uR = gl.getUniformLocation(prog, "uR");
     uPt = gl.getUniformLocation(prog, "uPt");
     uCore = gl.getUniformLocation(prog, "uCore");
     uFade = gl.getUniformLocation(prog, "uFade");
     gl.enable(gl.BLEND);
-    gl.blendFunc(gl.ONE, gl.ONE);
+    if (C.additive) gl.blendFunc(gl.ONE, gl.ONE);
+    else gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
   };
   initGL();
 
@@ -491,6 +511,10 @@ export function createField(opts = {}) {
     }
     gl.bindBuffer(gl.ARRAY_BUFFER, bufS);
     gl.bufferSubData(gl.ARRAY_BUFFER, 0, drawSize);
+    if (bufO) {
+      gl.bindBuffer(gl.ARRAY_BUFFER, bufO);
+      gl.bufferSubData(gl.ARRAY_BUFFER, 0, solid);
+    }
     gl.uniform1f(uCore, C.coreGain);
     gl.uniform1f(uFade, C.depthFade);
     if (opts.transparent) gl.clearColor(0, 0, 0, 0);

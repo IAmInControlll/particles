@@ -4,12 +4,93 @@
 // land and wait for the owner to walk over. WEAPONS rows tune reach,
 // damage, throw threshold, and silhouette per loadout.
 
+import { sizeOf, LX, LY } from "./skin.js";
+
 export const WEAPONS = {
-  blade: { len: 0.62, dmg: 1.0, cut: 1.0, throwV: 850, lag: 40, wt: 1.0, shape: "taper", desc: "blade - balanced reach, honest bite, fair on the arms" },
-  mace: { len: 0.48, dmg: 1.55, cut: 0.3, throwV: 1150, lag: 24, wt: 1.6, shape: "mace", desc: "mace - short, crushing, hard to throw, gasses you out" },
-  spear: { len: 1.3, dmg: 0.85, cut: 0.8, throwV: 720, lag: 34, wt: 0.8, shape: "spear", desc: "spear - twice the blade's reach, light head, cheap to keep swinging" },
+  blade: { len: 0.62, r: 0.03, dmg: 1.0, cut: 1.0, throwV: 850, lag: 40, wt: 1.0, shape: "taper", desc: "blade - balanced reach, honest bite, fair on the arms" },
+  mace: { len: 0.48, r: 0.06, dmg: 1.55, cut: 0.3, throwV: 1150, lag: 24, wt: 1.6, shape: "mace", desc: "mace - short, crushing, hard to throw, gasses you out" },
+  spear: { len: 1.3, r: 0.025, dmg: 0.85, cut: 0.8, throwV: 720, lag: 34, wt: 0.8, shape: "spear", desc: "spear - twice the blade's reach, light head, cheap to keep swinging" },
   fists: { len: 0, dmg: 0.38, cut: 0.15, throwV: 1e9, lag: 0, wt: 0.5, shape: "fists", bare: true, floor: 70, desc: "fists - bare knuckles, both hands swing, light work" },
 };
+
+// ---- look: each shape is a list of local points (a along the seg from
+// the hand in u, b across it, d sprite width in u, m material) ----
+const STEEL = [0.66, 0.7, 0.77], EDGE = [0.93, 0.96, 1.0], FULLER = [0.46, 0.5, 0.57];
+const BRASS = [0.82, 0.63, 0.3], IRON = [0.4, 0.42, 0.47], GRIP = [0.3, 0.17, 0.08], WRAP = [0.48, 0.3, 0.13];
+const WOOD = [0.58, 0.38, 0.19], WOOD2 = [0.44, 0.28, 0.14];
+const TRAIL_C = [0.62, 0.78, 1.0];
+const Z = 1.3;
+
+// n is the slice budget: the off-hand rides the smaller shield slice,
+// so detail counts scale down and the main body keeps a solid line
+function shapeFor(shape, len, n) {
+  const pts = [];
+  const sc = Math.min(1, n / 116);
+  const c = (k) => Math.max(2, Math.round(k * sc));
+  const add = (a, b, d, m) => pts.push({ a, b, d, m });
+  const line = (k, a0, a1, b, d, m) => {
+    for (let i = 0; i < k; i++) add(a0 + ((a1 - a0) * (i + 0.5)) / k, b, d, typeof m === "function" ? m(i) : m);
+  };
+  const ring = (k, a, b, r, d, m) => {
+    for (let i = 0; i < k; i++) add(a + Math.cos((i / k) * 6.283) * r, b + Math.sin((i / k) * 6.283) * r, d, m);
+  };
+  const wrap = (i) => (i % 2 ? WRAP : GRIP);
+  if (shape === "taper") {
+    ring(3, -0.115, 0, 0.012, 0.022, BRASS);
+    line(c(9), -0.1, 0.02, 0, 0.032, wrap);
+    const g = c(11);
+    for (let i = 0; i < g; i++) add(0.045, -0.085 + (0.17 * i) / (g - 1), 0.026, BRASS); // crossguard
+    add(0.065, 0, 0.034, BRASS);
+    // rows across the blade (lit edge, fuller, shadow edge), two when the
+    // budget is thin so each row stays a solid line; the last 0.14u
+    // tapers to a point so the silhouette reads as a sword, not a rod
+    const rows = n - pts.length >= 66 ? 3 : 2;
+    const k = Math.floor((n - pts.length) / rows);
+    const mats = rows === 3 ? [STEEL, FULLER, EDGE] : [STEEL, EDGE];
+    for (let row = 0; row < rows; row++)
+      for (let i = 0; i < k; i++) {
+        const a = 0.07 + ((len - 0.075) * (i + 0.5)) / k;
+        const hw = 0.019 * Math.min(1, (len - a) / 0.14);
+        const b = (row - (rows - 1) / 2) * hw * (rows === 3 ? 0.62 : 0.8);
+        add(a, b, 0.012 + hw * (rows === 3 ? 0.85 : 1.1), mats[row]);
+      }
+  } else if (shape === "spear") {
+    add(-0.37, 0, 0.042, IRON);
+    add(-0.35, 0, 0.042, IRON);
+    line(c(8), -0.07, 0.07, 0, 0.04, wrap);
+    const head = 3 * c(10), sock = c(4);
+    const k = Math.max(4, n - pts.length - head - sock);
+    line(k, -0.34, len - 0.2, 0, 0.036 + 0.008 * (1 - sc), (i) => (i % 5 === 2 ? WOOD2 : WOOD));
+    line(sock, len - 0.215, len - 0.17, 0, 0.044, IRON);
+    // leaf blade: widest a third of the way up, to a sharp point
+    for (let i = 0; i < head; i++) {
+      const row = i % 3, t = (Math.floor(i / 3) + 0.5) / (head / 3);
+      const a = len - 0.17 + 0.17 * t;
+      const hw = 0.034 * Math.sin(Math.PI * Math.pow(t, 0.62));
+      add(a, (row - 1) * hw * 0.6, 0.012 + hw * 0.8, row === 2 ? EDGE : row === 1 ? STEEL : FULLER);
+    }
+  } else if (shape === "mace") {
+    add(-0.1, 0, 0.032, IRON);
+    line(c(9), -0.09, 0.05, 0, 0.038, wrap);
+    const hc = len - 0.045;
+    const fr = sc < 0.8 ? 2 : 3, outer = c(12), inner = c(7);
+    const k = Math.max(4, n - pts.length - 6 * fr - outer - inner - 1);
+    line(k, 0.05, hc - 0.04, 0, 0.036, (i) => (i % 4 === 1 ? WOOD2 : WOOD));
+    // six flanges stand off the ball - the outline says "mace" even
+    // edge-on, a plain disc reads as a lollipop
+    for (let j = 0; j < 6; j++) {
+      const ang = (j / 6) * 6.283 + 0.26;
+      for (let r = 0; r < fr; r++) {
+        const rr = 0.062 + (r * 0.032) / fr;
+        add(hc + Math.cos(ang) * rr, Math.sin(ang) * rr, 0.03 - (r * 0.012) / fr, STEEL);
+      }
+    }
+    ring(outer, hc, 0, 0.046, 0.036, IRON);
+    ring(inner, hc, 0, 0.024, 0.036, IRON);
+    add(hc, 0, 0.036, IRON);
+  }
+  return pts;
+}
 
 export function createWeapon(field, f, V, opts) {
   const u = field.unit;
@@ -52,7 +133,7 @@ export function createWeapon(field, f, V, opts) {
     const bare = !!W.spec.bare;
     for (let p = lo; p < hi; p++) {
       field.homed[p] = bare ? 0 : 1;
-      field.size[p] = bare ? 0 : 2.4;
+      if (bare) field.size[p] = 0; // armed sizes come from writeHomes
     }
   };
 
@@ -83,6 +164,24 @@ export function createWeapon(field, f, V, opts) {
     V.impulse(tip, -vy * 0.35, vx * 0.35);
     V.impulse(hilt, vy * 0.12, -vx * 0.12);
   }
+
+  // contact.js stops a blade at flesh: it repoints the held direction
+  // and re-seats the seg on the moved hand. Tip speed then measures from
+  // the stopped pose, so a blocked blade reads as stopped next frame.
+  W.setDir = (x, y) => {
+    const m = Math.hypot(x, y);
+    if (m < 1e-4) return;
+    bdx = x / m;
+    bdy = y / m;
+  };
+  W.place = () => {
+    seg.ax = J[HAND].x;
+    seg.ay = J[HAND].y;
+    seg.bx = J[HAND].x + bdx * W.len;
+    seg.by = J[HAND].y + bdy * W.len;
+    prevTx = seg.bx;
+    prevTy = seg.by;
+  };
 
   W.update = (dt, env) => {
     if (dt <= 0 || W.spec.bare) return;
@@ -162,49 +261,65 @@ export function createWeapon(field, f, V, opts) {
     prevGrip = f.intent.grip;
   };
 
-  const glow = opts.color;
+  // the last few particles are an additive swing trail behind the tip
+  const nT = Math.max(6, Math.round((hi - lo) * 0.11));
+  const nB = hi - lo - nT;
+  const HIST = 6;
+  const hist = new Float32Array(HIST * 2);
+  let hN = 0, hHead = 0, look = null;
   W.writeHomes = () => {
     if (W.spec.bare) return;
-    const home = field.home, hcol = field.hcol;
-    // a free weapon is rigid - snap its particles to the seg or spring
-    // lag strings them along the flight path into a long comet tail
-    const rigid = W.state !== "held";
+    if (!look || look.shape !== W.spec.shape) look = { shape: W.spec.shape, pts: shapeFor(W.spec.shape, W.len / u, nB) };
+    const home = field.home, hcol = field.hcol, size = field.size, solid = field.solid;
+    // rigid always: spring lag would bend steel into a comet tail
     const dx = seg.bx - seg.ax, dy = seg.by - seg.ay;
     const d = Math.hypot(dx, dy) || 1e-4;
-    const px = -dy / d, py = dx / d;
-    const n = hi - lo;
-    // trail smear: fast tips drag ghost homes backward along the path
-    const smear = Math.min(1, W.tipSpeed / 1400);
-    const smX = -W.tipV.x * 0.028 * smear, smY = -W.tipV.y * 0.028 * smear;
-    for (let p = lo; p < hi; p++) {
-      const i = p * 3;
-      const t = (p - lo) / (n - 1);
-      const shape = W.spec.shape;
-      if (t < 0.12) {
-        // hilt knot: a tight blob around the grip
-        const a = field.h1(p) * Math.PI * 2;
-        const r = field.h2(p) * 0.022 * u;
-        home[i] = seg.ax + Math.cos(a) * r;
-        home[i + 1] = seg.ay + Math.sin(a) * r;
-      } else if (shape === "mace" && t > 0.72) {
-        // mace head: a fat bright knot at the end of the shaft
-        const a = field.h1(p) * Math.PI * 2;
-        const r = (0.045 + field.h2(p) * 0.04) * u;
-        home[i] = seg.bx + Math.cos(a) * r;
-        home[i + 1] = seg.by + Math.sin(a) * r;
-      } else {
-        const o = field.h2(p) * 2 - 1;
-        const w =
-          (shape === "spear" ? 0.009 : 0.016 - 0.011 * t) * u;
-        home[i] = seg.ax + dx * t + px * o * w + smX * (t - 0.4);
-        home[i + 1] = seg.ay + dy * t + py * o * w + smY * (t - 0.4);
+    const tx = dx / d, ty = dy / d;
+    const px = -ty * f.side, py = tx * f.side; // +b is the leading edge
+    const face = px * LX + py * LY; // > 0 when the +b edge faces the light
+    const glint = Math.min(1, W.tipSpeed / 1600);
+    for (let k = 0; k < nB; k++) {
+      const p = lo + k, i = p * 3, q = look.pts[k];
+      if (!q) {
+        size[p] = 0;
+        continue;
       }
-      home[i + 2] = (field.h3(p) - 0.5) * 5;
-      if (rigid) field.snap[p] = 1;
-      const m = 0.75 + 0.5 * field.h3(p) + t * 0.25;
-      hcol[i] = glow[0] * m;
-      hcol[i + 1] = glow[1] * m;
-      hcol[i + 2] = glow[2] * m;
+      home[i] = seg.ax + (tx * q.a + px * q.b) * u;
+      home[i + 1] = seg.ay + (ty * q.a + py * q.b) * u;
+      home[i + 2] = Z;
+      field.snap[p] = 1;
+      size[p] = sizeOf(q.d, Z);
+      solid[p] = 1;
+      const side = q.b > 0.001 ? 1 : q.b < -0.001 ? -1 : 0;
+      const m = 0.9 + 0.3 * side * face + (q.m === EDGE ? glint * 0.25 : 0);
+      hcol[i] = Math.min(1, q.m[0] * m);
+      hcol[i + 1] = Math.min(1, q.m[1] * m);
+      hcol[i + 2] = Math.min(1, q.m[2] * m);
+    }
+    // a jump (reset, pickup) restarts the trail instead of streaking it
+    const last = (hHead + HIST - 1) % HIST;
+    if (hN && Math.hypot(seg.bx - hist[last * 2], seg.by - hist[last * 2 + 1]) > 0.9 * u) hN = 0;
+    hist[hHead * 2] = seg.bx;
+    hist[hHead * 2 + 1] = seg.by;
+    hHead = (hHead + 1) % HIST;
+    hN = Math.min(HIST, hN + 1);
+    const heat = Math.max(0, Math.min(1, (W.tipSpeed - 380) / 1000));
+    for (let k = 0; k < nT; k++) {
+      const p = lo + nB + k, i = p * 3;
+      // spread the trail along the last hN tip samples, newest first
+      const jf = (k / (nT - 1)) * Math.max(0, hN - 1), j0 = jf | 0, fr = jf - j0;
+      const a = (hHead - 1 - j0 + HIST * 2) % HIST, b = (hHead - 2 - j0 + HIST * 2) % HIST;
+      const bj = j0 + 1 < hN ? b : a;
+      home[i] = hist[a * 2] + (hist[bj * 2] - hist[a * 2]) * fr;
+      home[i + 1] = hist[a * 2 + 1] + (hist[bj * 2 + 1] - hist[a * 2 + 1]) * fr;
+      home[i + 2] = Z;
+      field.snap[p] = 1;
+      solid[p] = 0;
+      const fade = heat * (1 - k / nT);
+      size[p] = fade > 0.03 ? sizeOf(0.11 * (1 - (k / nT) * 0.5), Z) : 0;
+      hcol[i] = TRAIL_C[0] * fade;
+      hcol[i + 1] = TRAIL_C[1] * fade;
+      hcol[i + 2] = TRAIL_C[2] * fade;
     }
   };
 

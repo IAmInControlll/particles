@@ -5,19 +5,23 @@
 import { createVerlet } from "../../lib/verlet.js";
 import { createPuppet } from "./puppet.js";
 import { createWeapon, createFist, WEAPONS } from "./weapon.js";
-import { createAI } from "./ai.js";
+import { createAI, personaFor } from "./ai.js";
 import { createDamage } from "./damage.js";
+import { createContact } from "./contact.js";
 import { createArena } from "./arena.js";
 import { createBackdrop } from "./backdrop.js";
-import { createPainter } from "./painter.js";
 import { createFx } from "./fx.js";
+import { PLAYER_OUTFIT, foeOutfit } from "./skin.js";
 
 const BODY_N = 500;
 const WEAPON_N = 130;
 const SHIELD_N = 80;
 const PER_FIGHTER = BODY_N + WEAPON_N + SHIELD_N;
-const ARENA_N = 1400;
 const FX_N = 150;
+// draw order is index order, and solid particles paint over lower ones:
+// [scenery | fighter 0 | fighter 1 | fx | ground] back to front. The
+// ground paints last so debris sinking below the floor line vanishes.
+const GROUND_FRAC = 0.12;
 
 export function createFighter(field, PF) {
   const u = field.unit;
@@ -25,7 +29,10 @@ export function createFighter(field, PF) {
   const env = () => ({ floor, wallL: innerWidth * 0.09, wallR: innerWidth * 0.91 });
 
   const e = env();
-  const mk = (lo, side, x, body, blade, shield) => {
+  const GROUND_N = Math.round(field.N * GROUND_FRAC);
+  const GROUND_LO = field.N - GROUND_N;
+  const F_LO = GROUND_LO - 2 * PER_FIGHTER - FX_N;
+  const mk = (lo, side, x, outfit, blade, shield) => {
     const V = createVerlet({ gravity: 2400, iterations: 7 });
     const f = createPuppet(field, V, {
       lo,
@@ -36,7 +43,7 @@ export function createFighter(field, PF) {
       x,
       floor,
       shield,
-      colors: { body },
+      outfit,
     });
     f.W = createWeapon(field, f, V, {
       color: blade,
@@ -62,19 +69,20 @@ export function createFighter(field, PF) {
     return f;
   };
 
-  const f0 = mk(0, 1, e.wallL + u, PF.PAL.ink, PF.PAL.accent, "buckler");
-  const f1 = mk(PER_FIGHTER, -1, e.wallR - u, [1.0, 0.62, 0.38], [1.0, 0.5, 0.3], "buckler");
+  const f0 = mk(F_LO, 1, e.wallL + u, PLAYER_OUTFIT, PF.PAL.accent, "buckler");
+  const f1 = mk(F_LO + PER_FIGHTER, -1, e.wallR - u, foeOutfit(0), [1.0, 0.5, 0.3], "buckler");
   const fighters = [f0, f1];
-  const ai = createAI(f1, f0, u);
-  const arena = createArena(field, { lo: 2 * PER_FIGHTER, hi: 2 * PER_FIGHTER + ARENA_N });
-  const backdrop = createBackdrop(); // paints the scenery under the GL layer
-  const painter = createPainter(); // body silhouettes between scenery and particles
-  const fx = createFx(field, { lo: arena.hi, hi: arena.hi + FX_N });
+  const ai = createAI(f1, f0, u, env);
+  const arena = createArena(field, { lo: 0, hi: F_LO, groundLo: GROUND_LO, groundHi: field.N });
+  const backdrop = createBackdrop(); // the flat sky gradient under the GL layer
+  const fx = createFx(field, { lo: F_LO + 2 * PER_FIGHTER, hi: F_LO + 2 * PER_FIGHTER + FX_N });
   const damage = createDamage(fighters, u, fx);
+  const contact = createContact(fighters, u);
 
   // ---- match: loadout -> intro -> fight -> roundend -> next foe, until
   // the player dies. A ladder, not a set: score = opponents beaten. ----
-  const match = { state: "loadout", round: 1, t: 0, roundsDone: 0 };
+  const ROUND_T = 60;
+  const match = { state: "loadout", round: 1, t: 0, roundsDone: 0, clock: ROUND_T, result: null };
   const banner = document.getElementById("banner");
   const fills = [document.getElementById("mass0"), document.getElementById("mass1")];
   const say = (t) => banner && (banner.textContent = t);
@@ -86,7 +94,17 @@ export function createFighter(field, PF) {
   }));
 
   let best = +(localStorage.getItem("fighter.best") || 0);
-  const midEl = document.querySelector("#hud .mid");
+  const midEl = document.getElementById("streak");
+  const clockEl = document.getElementById("clock");
+  let clockShown = -1;
+  const paintClock = () => {
+    const live = match.state === "fight" || match.state === "roundend";
+    const sec = live ? Math.ceil(match.clock) : -1;
+    if (!clockEl || sec === clockShown) return;
+    clockShown = sec;
+    clockEl.textContent = live ? String(sec) : "";
+    clockEl.classList.toggle("low", live && sec <= 10);
+  };
   const paintMid = () =>
     midEl &&
     (midEl.textContent =
@@ -123,13 +141,7 @@ export function createFighter(field, PF) {
     weapon: FOE_WEAPONS[n % FOE_WEAPONS.length],
     // bare-knuckle foes always fight two-fisted
     shield: FOE_WEAPONS[n % FOE_WEAPONS.length] === "fists" || n % 3 === 2 ? "dual" : "buckler",
-    diff: {
-      windupT: Math.max(0.3, 0.55 - n * 0.04),
-      recoverT: Math.max(0.35, 0.6 - n * 0.045),
-      guardChance: Math.min(0.5, 0.3 + n * 0.04),
-      aggression: Math.min(1, 0.8 + n * 0.05),
-      reach: Math.min(1.35, 1.15 + n * 0.03),
-    },
+    diff: personaFor(n),
   });
 
   function armFighters() {
@@ -146,6 +158,7 @@ export function createFighter(field, PF) {
     f1.W.setSpec(f.weapon);
     f1.W2.setSpec(f.weapon);
     f1.setShield(f.shield);
+    f1.setOutfit(foeOutfit(match.round - 1));
     ai.tune(f.diff);
   }
 
@@ -173,14 +186,13 @@ export function createFighter(field, PF) {
       f.W2.reset();
       f.face(f === f0 ? 1 : -1);
     }
+    ai.reset();
   }
-  const allocHi = arena.hi + FX_N;
   const layoutAll = () => {
     const e = env();
     e.u = u;
     arena.layout(e);
-    arena.sky(allocHi, field.N, e); // ambient tail becomes a starfield
-    backdrop.paint(e); // painted scenery under the GL layer
+    backdrop.paint(e);
   };
   layoutAll();
   field.onResize = layoutAll;
@@ -228,12 +240,6 @@ export function createFighter(field, PF) {
     i.sAim.y = field.mouse.y;
   }
 
-  // torso-and-limb joint names only - hands and feet stay free so arms
-  // can reach past the guard and feet can plant wide. A raised buckler
-  // blocks hands too - no limb occupies space inside the foe's disc.
-  const BODY_CONTACT = ["chest", "belly", "head", "sho", "elb", "elbS", "root", "kneeF", "kneeB"];
-  const SHIELD_BLOCK_JOINTS = [...BODY_CONTACT, "hand", "handS"];
-
   // impact freeze: a brief full stop on a solid connect reads as weight.
   // Without a refractory gap, brawls land events faster than the window
   // and the freeze chains - the whole duel ran at half speed (and ate
@@ -252,10 +258,6 @@ export function createFighter(field, PF) {
       layoutAll();
     }
     const e = env();
-    field.exclude = [
-      { l: -200, t: -200, r: e.wallL - 10, b: e.floor + 8 },
-      { l: e.wallR + 10, t: -200, r: innerWidth + 200, b: e.floor + 8 },
-    ];
     // dead motes drain to a point below the viewport - no exclusion band
     // under the floor or they pool there and read as a moving dotted line
     field.drift.x = innerWidth / 2;
@@ -274,7 +276,9 @@ export function createFighter(field, PF) {
 
     // bodies never share space - fighting-game min separation. Skip
     // when one is clearly airborne so a jump can clear the foe.
-    const minSep = 0.45 * u;
+    // 0.45u let two painted torsos overlap into one blob in the clinch;
+    // 0.6u keeps a visible body-width gap without walling off fist range
+    const minSep = 0.6 * u;
     const gapx = f1.x - f0.x;
     const dyR = Math.abs(f1.J.root.y - f0.J.root.y);
     if (Math.abs(gapx) < minSep && dyR < 0.7 * u) {
@@ -291,91 +295,21 @@ export function createFighter(field, PF) {
     for (const f of fighters) {
       f.step(dt, e);
       f.W.update(dt, e);
-      f.W.writeHomes();
       f.F1.update();
       f.F2.update();
-      if (f.dual) {
-        f.W2.update(dt, e);
-        f.W2.writeHomes();
-      }
+      if (f.dual) f.W2.update(dt, e);
     }
-
-    // bodies resist each other: opposing joint discs push apart. minSep
-    // only separates the f.x targets - without this the verlet bodies
-    // interpenetrate in a clinch. Every push shifts px with x so it is a
-    // pure translation - moving x alone injects velocity through verlet
-    // and that is where the "spazz" energy came from. Skip when one
-    // fighter is clearly airborne above the other so jumps clear the foe.
-    const dyRoot = f1.J.root.y - f0.J.root.y;
-    const skipContact = Math.abs(dyRoot) > 0.7 * u;
-    const BODY_R = 0.13 * u, BODY_R2 = BODY_R * BODY_R * 4;
-    if (!skipContact) {
-      for (const na of BODY_CONTACT) {
-        const ja = f0.J[na];
-        for (const nb of BODY_CONTACT) {
-          const jb = f1.J[nb];
-          const bx = jb.x - ja.x, by = jb.y - ja.y;
-          const bd2 = bx * bx + by * by;
-          if (bd2 < BODY_R2 && bd2 > 1e-4) {
-            const bd = Math.sqrt(bd2);
-            const push = (BODY_R * 2 - bd) * 0.5 / bd;
-            const hx = bx * push, hy = by * push;
-            ja.x -= hx; ja.y -= hy; ja.px -= hx; ja.py -= hy;
-            jb.x += hx; jb.y += hy; jb.px += hx; jb.py += hy;
-          }
-        }
-      }
-      // a raised buckler is a wall, not a spring: opposing body joints
-      // get projected fully out of its disc (60% to them, 40% recoil
-      // into the holder's shield hand). Partial pushes lost to the arm
-      // springs and let strikes slide through - bucklers going through
-      // each other was the discs having no hard constraint at all
-      for (const [holder, other] of [[f0, f1], [f1, f0]]) {
-        const sh = holder.shield;
-        if (!sh.active) continue;
-        for (const nb of SHIELD_BLOCK_JOINTS) {
-          const jb = other.J[nb];
-          const bx = jb.x - sh.x, by = jb.y - sh.y;
-          const rr = sh.r + BODY_R;
-          const bd2 = bx * bx + by * by;
-          if (bd2 < rr * rr && bd2 > 1e-4) {
-            const bd = Math.sqrt(bd2);
-            const ox = bx / bd, oy = by / bd, ov = rr - bd;
-            const hx = ox * ov * 0.6, hy = oy * ov * 0.6;
-            const sx = ox * ov * 0.4, sy = oy * ov * 0.4;
-            jb.x += hx; jb.y += hy; jb.px += hx; jb.py += hy;
-            const hs = holder.J.handS;
-            hs.x -= sx; hs.y -= sy; hs.px -= sx; hs.py -= sy;
-          }
-        }
-      }
-      // shield on shield: two raised bucklers meet like rams - each
-      // hand slides back half the overlap so the discs end tangent
-      if (f0.shield.active && f1.shield.active) {
-        const a = f0.shield, c = f1.shield;
-        const bx = c.x - a.x, by = c.y - a.y;
-        const rr = a.r + c.r;
-        const bd2 = bx * bx + by * by;
-        if (bd2 < rr * rr && bd2 > 1e-4) {
-          const bd = Math.sqrt(bd2);
-          const push = (rr - bd) * 0.5 / bd;
-          const hx = bx * push, hy = by * push;
-          const A = f0.J.handS, C = f1.J.handS;
-          A.x -= hx; A.y -= hy; A.px -= hx; A.py -= hy;
-          C.x += hx; C.y += hy; C.px += hx; C.py += hy;
-        }
-      }
-      // hands moved - re-derive the discs so visuals and hit tests read
-      // post-solve positions instead of one-frame-stale ones
-      for (const f of fighters) {
-        f.shield.x = f.J.handS.x + f.side * 0.2 * u;
-        f.shield.y = f.J.handS.y;
-      }
-    }
+    // bones, blades and bucklers of the two bodies can't share space
+    contact.step(dt);
     // contact pushes can re-bend a knee past straight - clamp last
     for (const f of fighters) {
       f.limJoint(f.lim.kneeF);
       f.limJoint(f.lim.kneeB);
+      // skin last: it reads post-contact joints, so drawn bodies never
+      // overlap where the physics already separated them
+      f.writeHomes(dt);
+      f.W.writeHomes();
+      if (f.dual) f.W2.writeHomes();
     }
     if (fighting) {
       damage.step(T, dt);
@@ -385,8 +319,7 @@ export function createFighter(field, PF) {
         hitGap = 0.25;
       }
     }
-    arena.frame(dt, T); // torch flames and rising embers
-    painter.draw(fighters, u);
+    arena.frame(dt, T, fighting && damage.ev.hit); // flames, embers, crowd
     fx.step();
 
     for (let i = 0; i < 2; i++) {
@@ -411,18 +344,31 @@ export function createFighter(field, PF) {
       }
     }
 
+    // the clock only runs in a live duel - a held foe is a test fixture
+    if (fighting && !f1.aiHold) match.clock = Math.max(0, match.clock - dt);
+    paintClock();
+
     if (match.state === "intro" && match.t > 1.5) {
       match.state = "fight";
       match.t = 0;
+      match.clock = ROUND_T;
+      match.result = null;
       say("");
-    } else if (match.state === "fight" && (f0.dead() || f1.dead())) {
+    } else if (match.state === "fight" && (f0.dead() || f1.dead() || match.clock <= 0)) {
+      match.result = adjudicate();
       match.state = "roundend";
       match.t = 0;
       match.roundsDone++;
-      say(f0.dead() ? "you fall" : "ko - foe down");
+      say(match.result.text);
     } else if (match.state === "roundend" && match.t > 3.0) {
       match.t = 0;
-      if (f0.dead()) {
+      if (match.result.winner === -1) {
+        // a dead-even decision is a rematch: same foe, streak untouched
+        match.state = "intro";
+        armFighters();
+        resetRound();
+        say(`foe ${match.round} - again`);
+      } else if (match.result.winner === 1) {
         match.state = "gameover";
         const streak = match.round - 1;
         if (streak > best) {
@@ -444,5 +390,25 @@ export function createFighter(field, PF) {
     }
   }
 
-  return { step, fighters, match, say, field, damage, fx };
+  // a knockout names how it happened; time goes to whoever has more of
+  // themselves left, and a near-even split is a draw
+  function adjudicate() {
+    const KO = {
+      bled: ["you fall", "ko - foe down"],
+      head: ["knocked out", "ko - foe's lights out"],
+      legs: ["your legs are gone", "foe can't stand"],
+      arms: ["no arms left", "foe can't hold a thing"],
+    };
+    const o0 = f0.out(), o1 = f1.out();
+    if (o0) return { winner: 1, how: o0, text: KO[o0][0] };
+    if (o1) return { winner: 0, how: o1, text: KO[o1][1] };
+    const r0 = f0.mass / f0.mass0, r1 = f1.mass / f1.mass0;
+    const pct = (r) => Math.round(r * 100);
+    if (Math.abs(r0 - r1) < 0.01) return { winner: -1, how: "time", text: `time - draw ${pct(r0)} to ${pct(r1)}` };
+    return r0 > r1
+      ? { winner: 0, how: "time", text: `time - you take it ${pct(r0)} to ${pct(r1)}` }
+      : { winner: 1, how: "time", text: `time - foe takes it ${pct(r1)} to ${pct(r0)}` };
+  }
+
+  return { step, fighters, match, say, field, damage, contact, fx, ai, arena };
 }

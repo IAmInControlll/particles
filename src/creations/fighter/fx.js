@@ -46,7 +46,10 @@ export function createFx(field, opts) {
   function step() {
     for (const s of pool)
       if (s.t > 0 && field.T > s.t) {
+        // size 0 still draws at the engine's 1.5px floor: fade to black
+        // or spent sparks glow as specks in the drift pool
         size[s.p] = 0;
+        hcol[s.p * 3] = hcol[s.p * 3 + 1] = hcol[s.p * 3 + 2] = 0;
         s.t = -1;
       }
   }

@@ -11,7 +11,7 @@ const { chromium } = require(
   "C:/Users/Mohammad/AppData/Local/Programs/Devin/resources/app/node_modules/playwright-core"
 );
 
-const BASE = "http://localhost:8321";
+const BASE = `http://localhost:${process.env.PORT || 8321}`;
 mkdirSync("shots", { recursive: true });
 const fail = (msg) => {
   console.log("FAIL:", msg);
@@ -87,6 +87,27 @@ await waitFor(async () => (await state()) === "fight", 12, 250);
 const rearm = await state();
 if (rearm !== "fight") fail(`rearm state ${rearm}`);
 await shot("arena");
+// the scenery is particles: #bg may hold one vertical gradient, no shapes
+const scenery = await fray(() => {
+  const cv = document.getElementById("bg");
+  const d = cv.getContext("2d").getImageData(0, 0, cv.width, cv.height).data;
+  let rowSpread = 0;
+  for (let y = 0; y < cv.height; y++) {
+    let mn = 1e9, mx = -1;
+    for (let x = 0; x < cv.width; x++) {
+      const k = (y * cv.width + x) * 4, v = d[k] + 2 * d[k + 1] + d[k + 2];
+      if (v < mn) mn = v;
+      if (v > mx) mx = v;
+    }
+    rowSpread = Math.max(rowSpread, mx - mn);
+  }
+  const f = window.__fray.field;
+  let solid = 0;
+  for (let p = 0; p < f.N; p++) solid += f.solid[p] > 0.5;
+  return { rowSpread, solid };
+});
+if (scenery.rowSpread > 4) fail(`#bg canvas paints shapes: a row varies by ${scenery.rowSpread}`);
+if (scenery.solid < 1000) fail(`scenery is not solid particles: ${scenery.solid} solid`);
 // every phase below measures the player or drives the foe directly -
 // a live AI walks in and chops at the measurements (walk reads 9px
 // into a clinch, duck reads shallow through a stagger, a held-down
@@ -174,12 +195,21 @@ if (yDuck - yIdle < 10) fail(`duck dropped only ${yDuck - yIdle}px ${JSON.string
 // f.x is the body's locomotion driver - stepping beside the foe is a
 // deterministic approach that a retreating AI can't spoil. Refilling
 // the foe's tank keeps a winded or floored one from spoiling it anyway.
+// stance targets no longer drag a body (a released stance point waits
+// for real locomotion now) — proximity setup teleports the skeleton
+// instead. Same move-everything translation f.reset's spawn does.
 const stepIn = (gap = 200) =>
   page.evaluate((g) => {
     const [a, b] = window.__fray.fighters;
     b.stam = 1;
     b.faintT = 0;
-    a.x = Math.sign(b.J.root.x - a.J.root.x || 1) > 0 ? b.J.root.x - g : b.J.root.x + g;
+    const want = Math.sign(b.J.root.x - a.J.root.x || 1) > 0
+      ? b.J.root.x - g : b.J.root.x + g;
+    const dx = want - a.J.root.x;
+    for (const jn of Object.keys(a.J)) { a.J[jn].x += dx; a.J[jn].px += dx; }
+    a.x += dx;
+    a.feet.F.px += dx; a.feet.B.px += dx;
+    a.feet.F.tx += dx; a.feet.B.tx += dx;
   }, gap);
 
 // the live foe maims the player between measurements - a severed leg
@@ -213,9 +243,9 @@ const reviveA = () =>
 await page.evaluate(() => {
   const b = window.__fray.fighters[1];
   b.shieldOn = false;
-  // a held blade parries whips now - ground it so this phase measures
+  // a held blade parries whips now - bare hands so this phase measures
   // raw body damage, not the clash mechanic the next phase exercises
-  b.W.state = "ground";
+  b.W.setSpec("fists");
 });
 const hits0 = await fray(() => window.__fray.damage.total.hits);
 for (let i = 0; i < 8; i++) {
@@ -229,9 +259,12 @@ for (let i = 0; i < 8; i++) {
     // target) or lop the player's arm off. Death also flips the match to
     // roundend and stops adjudication - pin it back to fight.
     if (m.state !== "fight") { m.state = "fight"; m.t = 0; }
-    if (b.dead()) b.reset(innerWidth - 240);
+    if (b.dead() || b.J.root.y < -100) b.reset(innerWidth - 240);
     b.shieldOn = false;
-    b.W.state = "ground"; // a held blade parries the whip - keep it down
+    // a held blade parries every chest sweep into a clash - bare hands
+    // can't lock steel, so fists-spec leaves the foe defenseless. The
+    // clash phase restores its blade.
+    b.W.setSpec("fists");
     if (a.part.fore.severed || a.W.state !== "held") {
       const st = a.stam;
       a.reset(340);
@@ -245,8 +278,8 @@ for (let i = 0; i < 8; i++) {
     };
   });
   if (foe.hits > hits0) break;
-  await stepIn(240);
   await reviveA();
+  await stepIn(160);
   await page.waitForTimeout(200);
   await page.mouse.move(foe.x - 260, foe.y - 50);
   await page.mouse.down({ button: "left" });
@@ -274,11 +307,12 @@ await fray(() => {
   a.intent.throwNow = 0;
   a.W.reset();
   b.reset(a.J.root.x + 260); // adjacent - the sweep must reach its blade
+  b.W.setSpec("blade"); // the hit phase left it on fists
   b.W.reset(); // re-arm the foe - the clash phase needs a held blade
 });
 const cl0 = await fray(() => window.__fray.damage.total.clashes);
-await stepIn(210);
 await reviveA();
+await stepIn(210);
 await page.mouse.down({ button: "left" });
 const whipT0 = Date.now();
 let stamMin = 1;
@@ -293,12 +327,15 @@ while (Date.now() - whipT0 < 2400) {
     // adjudication stops entirely for the rest of the window.
     {
       if (fr.match.state !== "fight") { fr.match.state = "fight"; fr.match.t = 0; }
-      if (b.dead()) {
+      if (b.dead() || b.J.root.y < -100) {
         b.reset(a.J.root.x + 260);
         b.W.reset();
         b.setShield("none");
       }
-      for (const n of ["head", "neck", "chest", "belly", "sho", "shoS", "elb", "elbS", "kneeF", "kneeB", "root"]) b.integrity[n] = 4;
+      // limbs pinned just short of severing; head and neck held whole,
+      // since a chewed-up head is a knockout and ends the phase
+      for (const n of ["chest", "belly", "sho", "shoS", "elb", "elbS", "kneeF", "kneeB", "root"]) b.integrity[n] = 4;
+      b.integrity.head = b.integrity.neck = 18;
       b.mass = b.mass0;
       // this phase measures clash - the foe's blade must be in hand
       if (b.W.state !== "held") b.W.reset();
@@ -369,7 +406,7 @@ for (let i = 0; i < 8; i++) {
     // passive target: a staggered foe's buckler stays live but it can't
     // swing back, wander off, or collapse - the loop measures the block.
     // A dead foe skips every adjudication branch, so keep it alive too.
-    if (b.dead()) {
+    if (b.dead() || b.J.root.y < -100) {
       b.reset(innerWidth - 240);
       b.setShield("buckler");
     }
@@ -412,13 +449,17 @@ if (!(blk.blocks > sh0.blocks)) fail(`no shield block registered: ${JSON.stringi
 // the weakened pulls make the measurement flaky
 await page.evaluate(() => {
   const [a, b] = window.__fray.fighters;
-  // fresh arm for the measurement - earlier phases may have chewed the
-  // off-arm integrity, and a wounded limb legitimately drives weaker
-  if (a.part.foreS.severed || a.integrity.chest < 8) a.reset(340);
+  // deterministic baseline: a sprawl, slide, or chewed shoulder left over
+  // from earlier phases makes the hand chase a moving skeleton - reset
+  // unconditionally so the phase measures the arm, not the aftermath
+  a.reset(340);
   a.stam = 1;
   a.faintT = 0;
   a.staggerT = 0;
   a.x = 320;
+  // hold the foe parked across the arena - a live foe closes the gap
+  // inside the hold window and its strikes corrupt the measurement
+  b.aiHold = 1;
   b.x = innerWidth - 240;
   b.J.root.x = innerWidth - 240;
   if (window.__fray.match.state !== "fight") { window.__fray.match.state = "fight"; window.__fray.match.t = 0; }
@@ -453,7 +494,7 @@ for (let i = 0; i < 8; i++) {
     const fr = window.__fray;
     const b = fr.fighters[1];
     if (fr.match.state !== "fight") { fr.match.state = "fight"; fr.match.t = 0; }
-    if (b.dead()) b.reset(innerWidth - 240);
+    if (b.dead() || b.J.root.y < -100) b.reset(innerWidth - 240);
     b.setShield("none"); // measure raw foot contact, not a shield fizzle
     b.faintT = 0;
     b.stam = 1;
@@ -461,8 +502,8 @@ for (let i = 0; i < 8; i++) {
   });
   // kick reach is ~0.62u past the root - 170px only ever connected
   // because the live foe walked into it; a held foe keeps the gap
-  await stepIn(110);
   await reviveA();
+  await stepIn(110);
   await page.waitForTimeout(320); // let stag/lmb effects clear, foot reach is real
   await page.keyboard.press("Space");
   await page.waitForTimeout(320);
@@ -472,6 +513,8 @@ if (!(kicked > 0)) fail("kick did not stagger");
 await shot("kick");
 
 // ---- throw: whip until the tip is hot, then flag the release ----
+await reviveA(); // the kick phase can leave the arm maimed - a dead arm
+// reads as tipV ~150 and the throw never primes
 const foe2 = await fray(() => ({
   x: Math.round(window.__fray.fighters[1].J.root.x),
   y: Math.round(window.__fray.fighters[1].J.chest.y),
@@ -507,7 +550,7 @@ for (let i = 0; i < 10; i++) {
   const foe = await fray(() => {
     const b = window.__fray.fighters[1];
     // the hit phase can kill the foe - revive it or fists have no target
-    if (b.dead()) b.reset(innerWidth - 240);
+    if (b.dead() || b.J.root.y < -100) b.reset(innerWidth - 240);
     // passive target: shield down, tank full, held mid-stagger so it
     // can't swing back or kite - the loop measures fist contact only
     b.shieldOn = false;
@@ -570,7 +613,7 @@ await fray(() => {
   // an arm severed in the live brawl deadens every strike slot - the
   // whip can never drain the tank and the faint never comes. Same for
   // a dead foe: adjudication skips dead defenders entirely.
-  if (b.dead()) b.reset(innerWidth - 240);
+  if (b.dead() || b.J.root.y < -100) b.reset(innerWidth - 240);
   if (a.part.fore.severed) {
     a.reset(340);
     a.W.reset();
@@ -641,6 +684,7 @@ const stood = await waitFor(() => fray(() => {
 }), 24, 250);
 if (!stood) fail("fighter never stood back up from faint");
 
-console.log(JSON.stringify({ errors, boot, floorCheck, blk, dRmb: [dBefore | 0, dAfter | 0], hit, kicked, wState, fists, dual, whip, faintSeen, stood, next, over, rearm }, null, 1));
+console.log(JSON.stringify({ errors, boot, scenery, floorCheck, blk, dRmb: [dBefore | 0, dAfter | 0], hit, kicked, wState, fists, dual, whip, faintSeen, stood, next, over, rearm }, null, 1));
 await browser.close();
-process.exit(errors.length ? 1 : 0);
+// fail() sets exitCode; an explicit exit(0) would mask FAIL lines
+process.exit(errors.length || process.exitCode ? 1 : 0);

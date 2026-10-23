@@ -3,13 +3,20 @@ import { PF } from "../engine/index.js";
 import { createFighter } from "../creations/fighter/index.js";
 
 Object.assign(PF.CFG, {
+  // opaque paint for flesh, cloth and steel (field.solid = 1); sparks,
+  // fire and the sky keep the additive glow (solid 0)
+  additive: false,
   pointScale: 0.0072,
   spring: 0.05,
   dampHome: 0.85,
-  heatGain: 1.9,
+  // speed-to-heat would tint every swinging arm orange
+  heatGain: 0,
+  // per-particle tone jitter: enough grain for cloth, not confetti
+  colVar: 0.025,
   flowAmp: 0.0016,
   driftPull: 0.0009,
-  twinkle: 0.16,
+  // size breathing ripples a solid silhouette's edge
+  twinkle: 0.05,
   bg: [10, 10, 15],
 });
 

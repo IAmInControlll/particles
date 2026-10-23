@@ -209,3 +209,71 @@ with physical severed-limb debris, AI under identical rules, clean
 round flow. Baseline measured: one-hit kills, tunneling swings, no
 joint limits, sliding locomotion, interpenetrating bodies. All units
 verified live - see plan pass 9 and .audit/fray-overhaul.tsv.
+
+## Refinement notes (particle scenery pass, v3 bg stream)
+
+- The 2D backdrop is gone except one vertical gradient (sky, the shadowed
+  stands behind the crowd, dark soil). check.mjs asserts it: every row
+  of #bg must be flat, and the field must hold solid scenery particles.
+- With `CFG.additive = false`, opaque sprites tile silhouettes: each fill
+  layer bisects a hex-grid spacing until its region fits the layer's
+  particle share, sprites at 1.5x spacing. The same layer table scales
+  from the 9000 to the 4500 budget without per-device numbers.
+- Thin shapes (columns, cypresses, ropes, posts) are strokes: beads
+  spaced under their thickness, which keeps edges straight. A hex fill
+  on a 15px-wide column reads as a stack of balls.
+- The crowd is one sprite per body part (shoulders, belly, head, hair or
+  a raised fist), back tier first. A grid fill of the same budget read
+  as confetti.
+- Draw order is index order, so the ground band is the last slice, above
+  the fighters and fx; debris sinking under the floor line disappears.
+- The wall exclusion rects had to go: they clamp every particle home
+  outside the walls onto the rect edge, which crushes full-width
+  scenery into two vertical lines.
+- Headless Chromium renders on SwiftShader, so fill rate is the limiter.
+  Halo and light-pool sprites hundreds of px wide cost more than the
+  whole crowd; keep big glows few. Per-layer sprite area is the number
+  to watch (about 2.3M px for the scene at 1600x900).
+
+## Refinement notes (v3 phys: contact solver, gait, pumps)
+
+- Momentum-free corrections pump energy when a link undoes them. Any
+  step that moves `x` and shifts `px` by the same amount (hinge clamp,
+  pull iterations >= 1, `limJoint`, contact translation) carries no
+  velocity by itself, but if a link then pulls the joint back with an
+  x-only move, the px offset stays behind as velocity. The verlet spine
+  hinges did this 7x per frame and reported 10-17k px/s on joints that
+  barely moved. Hinges are now x-only like links. Pulls keep the px
+  shift: making them x-only left the idle torso wobbling +-0.12u
+  forever (the shift is their damping).
+- The verlet velocity of a pulled joint is not its motion. A walking
+  root read about -3000px/s while travelling +150px/s, because the pull
+  drags it momentum-free and the leg links bill it backward. Gait logic
+  reads `f.rvSm`, smoothed frame-to-frame travel, never `V.vel(root)`.
+- `limJoint` snapped a wrong-side elbow up to 2 rad in one frame (hand
+  flung ~100px), the arm pull dragged it back, and the pair flip-flopped
+  every frame. It now turns at most 0.3 rad per frame the short way, and
+  carries the hand proxy with the hand so the wrist link doesn't stretch.
+- contact.js owns all fighter-vs-fighter solids: 12 bone capsules per
+  body keyed by joint pairs (not part names, so a re-skinned part table
+  can't desync physics), held weapons as capsules on the hand proxy, the
+  buckler as a disc. Projection is translation, then an inelastic normal
+  impulse split by inverse mass; a struck joint takes at most 900px/s
+  from one contact, because a single joint stands in for the whole
+  body's inertia.
+- Blades pivot instead of shoving the arm. A correction across the blade
+  rotates it about the hand; only the part along the blade moves the
+  hand. Translating the whole hand lump froze a spear's hand on contact,
+  and the arm pull then yanked it 120px a frame back toward its target.
+  Fast sweeps are sampled from last frame's seg; the first touching pose
+  re-aims the blade from the hand onto the contact point.
+- damage.js no longer guesses hits from 0.24u joint proximity. It reads
+  `S.touch.{body,shield,weapon}` that contact.js writes per strike slot;
+  the hit power is the closing speed at the contact point, capped at
+  3200px/s (a whipping spear tip in a sampled sweep reads 8000).
+- Skin last: `f.writeHomes()` runs from index.js after contact, so drawn
+  bodies match the separated joints.
+- Gait: hips at 0.92 leg length (straight legs can't put a foot anywhere
+  but under the hip), and the trailing foot steps once the hips pass it,
+  aiming where the hips will be at touchdown plus half a stride. A foot
+  plants where it actually landed.

@@ -1,94 +1,37 @@
-// damage.js - hit adjudication. A weapon's segment is tested against the
-// enemy's joint positions; proximity times tip speed is the hit. Tests
-// are swept - the seg and its previous-frame seg form a quad, so a fast
-// tip cannot tunnel through a joint, a shield disc, or a held blade
-// between frames. A shield disc intersecting the sweep eats the whole
-// strike - sparks, a small stagger, no damage. Kicks shove instead.
+// damage.js - hit adjudication over real contacts. contact.js leaves a
+// touch record on every strike slot (body / shield / weapon) with the
+// closing speed at the contact point; a body touch above the slot's
+// threshold is a hit by that speed, a shield touch is a block, a blade
+// touch is a clash. Kicks shove instead.
 
 import { TUNE } from "./puppet.js";
 
 const HIT_JOINTS = ["head", "neck", "chest", "belly", "sho", "shoS", "elb", "elbS", "kneeF", "kneeB", "root"];
+// a boot to a planted foot still shoves the body - feet aren't damage
+// zones but they are kick contacts
+const KICK_JOINTS = [...HIT_JOINTS, "footF", "footB"];
 
 export function createDamage(fighters, u, fx) {
-  const HIT_R = 0.24 * u;
   const MIN_V = 350; // px/s - a resting blade can jitter ~250; real swings run 600+
-  const CLASH_R = 0.075 * u; // two blade segs this close read as steel on steel
   const CD = 0.32; // per-slot hit cooldown
   const cd = [[0, 0], [0, 0]];
-  // contact latches: a seg inside the shield disc or tangled with a
-  // blade is HELD there - effects fire once on entry, never again until
-  // the seg fully exits. Without this a resting blade re-triggers a
+  // contact latches: a slot resting on the buckler or locked against a
+  // blade fires its effects once on entry, never again until the touch
+  // has been gone LATCH_GAP. Without this a resting blade re-triggers a
   // stagger impulse every cooldown tick and the defender spasms.
   const inSh = [[0, 0], [0, 0]];
   const inCl = [[0, 0], [0, 0]];
+  const lastSh = [[-9, -9], [-9, -9]];
+  const lastCl = [[-9, -9], [-9, -9]];
+  const LATCH_GAP = 0.12; // s without contact before a latch lets go
   const kickLanded = [false, false];
   const spark = [1.0, 0.85, 0.4];
   const ev = { hit: 0, block: 0, clash: 0, power: 0 };
   const total = { hits: 0, blocks: 0, clashes: 0 };
 
-  const ptSeg = (jx, jy, s) => {
-    const dx = s.bx - s.ax, dy = s.by - s.ay;
-    const L2 = dx * dx + dy * dy || 1e-4;
-    let t = ((jx - s.ax) * dx + (jy - s.ay) * dy) / L2;
-    t = t < 0 ? 0 : t > 1 ? 1 : t;
-    const qx = s.ax + dx * t - jx, qy = s.ay + dy * t - jy;
-    return qx * qx + qy * qy;
-  };
-
-  // squared distance between two segments; the midpoint of the closest
-  // pair lands in cp so callers can spark where the blades actually met
-  const cp = { x: 0, y: 0 };
-  const segSegDist2 = (a, b) => {
-    const d1x = a.bx - a.ax, d1y = a.by - a.ay;
-    const d2x = b.bx - b.ax, d2y = b.by - b.ay;
-    const rx = a.ax - b.ax, ry = a.ay - b.ay;
-    const A = d1x * d1x + d1y * d1y;
-    const E = d2x * d2x + d2y * d2y;
-    const B = d1x * d2x + d1y * d2y;
-    const C = d1x * rx + d1y * ry;
-    const F = d2x * rx + d2y * ry;
-    const den = A * E - B * B;
-    let s = den > 1e-6 ? (B * F - C * E) / den : 0;
-    s = s < 0 ? 0 : s > 1 ? 1 : s;
-    let t = E > 1e-6 ? (B * s + F) / E : 0;
-    if (t < 0) { t = 0; s = A > 1e-6 ? -C / A : 0; }
-    else if (t > 1) { t = 1; s = A > 1e-6 ? (B - C) / A : 0; }
-    s = s < 0 ? 0 : s > 1 ? 1 : s;
-    const p1x = a.ax + d1x * s, p1y = a.ay + d1y * s;
-    const p2x = b.ax + d2x * t, p2y = b.ay + d2y * t;
-    cp.x = (p1x + p2x) * 0.5;
-    cp.y = (p1y + p2y) * 0.5;
-    const dx = p2x - p1x, dy = p2y - p1y;
-    return dx * dx + dy * dy;
-  };
-
-  const ptTri = (px, py, ax, ay, bx, by, cx, cy) => {
-    const d1 = (px - bx) * (ay - by) - (ax - bx) * (py - by);
-    const d2 = (px - cx) * (by - cy) - (bx - cx) * (py - cy);
-    const d3 = (px - ax) * (cy - ay) - (cx - ax) * (py - ay);
-    return !((d1 < 0 || d2 < 0 || d3 < 0) && (d1 > 0 || d2 > 0 || d3 > 0));
-  };
-
-  // point vs the quad the seg swept through this frame: near either the
-  // current or previous seg edge, or inside the swept area at all
-  const swept = (jx, jy, S, r2) => {
-    const s = S.seg, q = S.prev || s;
-    if (ptSeg(jx, jy, s) < r2 || ptSeg(jx, jy, q) < r2) return true;
-    return ptTri(jx, jy, s.ax, s.ay, s.bx, s.by, q.bx, q.by) ||
-      ptTri(jx, jy, s.ax, s.ay, q.bx, q.by, q.ax, q.ay);
-  };
-  // seg-vs-seg across the frame: attacker's sweep against both of the
-  // defender's endpoints
-  const sweptSeg2 = (S, dW) =>
-    Math.min(
-      segSegDist2(S.seg, dW.seg),
-      segSegDist2(S.prev || S.seg, dW.seg),
-      segSegDist2(S.seg, dW.prev || dW.seg));
-
   return {
     ev,
     total,
-    debug: { inSh, inCl, cd },
     step(T, dt) {
       ev.hit = ev.block = ev.clash = ev.power = 0;
       for (let a = 0; a < 2; a++) {
@@ -121,80 +64,69 @@ export function createDamage(fighters, u, fx) {
           // whips net positive stamina and the tank can never empty
           if (S.tipSpeed > 150) atk.hotNow = true;
           const cdc = cd[a][k];
+          const tc = S.touch;
 
-          // shield geometry first: any seg inside the disc is caught,
-          // fast or slow - speed only decides how hard the block lands.
-          // While caught the seg cannot reach anything behind the face.
-          // The exit radius is wider than the entry radius so contact
-          // jitter can't bounce the latch and machine-gun staggers.
-          if (sh && sh.active &&
-            swept(sh.x, sh.y, S, (inSh[a][k] ? sh.r * 1.45 : sh.r) ** 2)) {
+          // a buckler face the slot is resting on eats the strike - fast
+          // or slow, speed only decides how hard the block lands. Effects
+          // fire on entry; the latch holds while the seg stays on the face
+          // and lets go only after a short gap, so contact jitter can't
+          // machine-gun staggers.
+          if (tc.shield.on) {
+            lastSh[a][k] = T;
             if (!inSh[a][k]) {
               inSh[a][k] = 1;
               ev.block++;
               total.blocks++;
-              if (S.tipSpeed > 150 && T > cdc) {
-                const tv = S.tipV;
-                const d = Math.hypot(tv.x, tv.y) || 1;
-                fx.burst(sh.x, sh.y, 14, -tv.x / d, -tv.y / d, 260 + S.tipSpeed * 0.3, spark);
-                def.blockStagger((tv.x / d) * (moving ? 0.6 : 0.3), (tv.y / d) * (moving ? 0.6 : 0.3));
+              const sp = Math.max(tc.shield.speed, S.tipSpeed * 0.5);
+              if (sp > 150 && T > cdc) {
+                fx.burst(tc.shield.x, tc.shield.y, 14, -tc.shield.dx, -tc.shield.dy, 260 + sp * 0.3, spark);
+                const m = sp > (S.minV || MIN_V) ? 0.6 : 0.3;
+                def.blockStagger(tc.shield.dx * m, tc.shield.dy * m);
                 def.drainStam(TUNE.drainBlock);
                 cd[a][k] = T + CD;
-                ev.power = S.tipSpeed;
+                ev.power = sp;
               }
             }
             continue;
           }
-          inSh[a][k] = 0;
+          if (T - lastSh[a][k] > LATCH_GAP) inSh[a][k] = 0;
 
-          // steel on steel: an enemy blade held in the swing's path
-          // deflects it - any held blade counts, parked or moving. A
-          // bare fist has no blade to lock and slips under the guard.
-          const defHeld = !W || def.faintT > 0 ? [] : [def.W, def.dual ? def.W2 : null];
-          let locked = false;
-          for (const dW of defHeld) {
-            if (!dW || dW.spec.bare || dW.state !== "held") continue;
-            const rr = inCl[a][k] ? CLASH_R * 1.9 : CLASH_R;
-            if (sweptSeg2(S, dW) < rr * rr) {
-              locked = true;
-              if (!inCl[a][k]) {
-                inCl[a][k] = 1;
-                ev.clash++;
-                total.clashes++;
-                if (S.tipSpeed > 150 && T > cdc) {
-                  const tv = S.tipV;
-                  const d = Math.hypot(tv.x, tv.y) || 1;
-                  const mag = moving ? 1 : 0.5;
-                  fx.burst(cp.x, cp.y, 12, -tv.x / d, -tv.y / d, 240 + S.tipSpeed * 0.3, spark);
-                  atk.deflect((-tv.x / d) * mag, (-tv.y / d) * mag, S === atk.W2);
-                  def.deflect((tv.x / d) * mag, (tv.y / d) * mag, dW === def.W2);
-                  atk.drainStam(TUNE.drainClash);
-                  def.drainStam(TUNE.drainClash);
-                  cd[a][k] = T + CD;
-                  ev.power = S.tipSpeed;
-                }
+          // steel on steel: blades that physically met. A bare fist has no
+          // blade to lock and slips under the guard.
+          if (W && tc.weapon.on) {
+            lastCl[a][k] = T;
+            if (!inCl[a][k]) {
+              inCl[a][k] = 1;
+              ev.clash++;
+              total.clashes++;
+              const sp = Math.max(tc.weapon.speed, S.tipSpeed * 0.5);
+              if (sp > 150 && T > cdc) {
+                const mag = sp > (S.minV || MIN_V) ? 1 : 0.5;
+                fx.burst(tc.weapon.x, tc.weapon.y, 12, -tc.weapon.dx, -tc.weapon.dy, 240 + sp * 0.3, spark);
+                atk.drainStam(TUNE.drainClash);
+                def.drainStam(TUNE.drainClash);
+                cd[a][k] = T + CD;
+                ev.power = sp * mag;
               }
-              break;
             }
+            continue;
           }
-          if (!locked) inCl[a][k] = 0;
-          else continue; // blades stay tangled until the seg slides clear
-          if (!moving) continue; // contact, not damage - it never crossed
+          if (T - lastCl[a][k] > LATCH_GAP) inCl[a][k] = 0;
 
-          // blade or knuckle contact - swept, so a fast tip can't tunnel
-          for (const jn of HIT_JOINTS) {
-            const j = def.J[jn];
-            if (swept(j.x, j.y, S, HIT_R * HIT_R)) {
-              const tv = S.tipV;
-              const d = Math.hypot(tv.x, tv.y) || 1;
-              def.applyHit(j.x, j.y, S.tipSpeed * S.dmg, tv.x / d, tv.y / d, S.spec.cut ?? 1, S.spec.floor ?? TUNE.dmgFloor);
-              cd[a][k] = T + CD;
-              ev.hit++;
-              total.hits++;
-              ev.power = S.tipSpeed;
-              break;
-            }
-          }
+          // flesh: the slot's capsule actually touched a bone this frame.
+          // Damage is the closing speed at that contact - a blade parked
+          // on a body deals nothing, a swing that lands deals by speed.
+          // The cooldown stops one drag through the body landing a hit
+          // every frame.
+          const tb = tc.body;
+          if (!tb.on || T <= cdc) continue;
+          const power = Math.max(tb.speed, 0);
+          if (power < (S.minV || MIN_V)) continue;
+          def.applyHit(tb.x, tb.y, power * S.dmg, tb.dx, tb.dy, S.spec.cut ?? 1, S.spec.floor ?? TUNE.dmgFloor);
+          cd[a][k] = T + CD;
+          ev.hit++;
+          total.hits++;
+          ev.power = power;
         }
 
         // kick: once per kick, while the leg is extended - any joint works.
@@ -209,7 +141,7 @@ export function createDamage(fighters, u, fx) {
               def.blockStagger(atk.side * 0.3, 0.1);
             }
           }
-          for (const jn of HIT_JOINTS) {
+          for (const jn of KICK_JOINTS) {
             const j = def.J[jn];
             const dx = j.x - ft.x, dy = j.y - ft.y;
             if (dx * dx + dy * dy < (0.6 * u) ** 2) {
