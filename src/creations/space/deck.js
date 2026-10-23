@@ -652,7 +652,7 @@ export function createDeck(cam, field) {
         const vy = U[0] * dx + U[1] * dy + U[2] * dz;
         const vz = F[0] * dx + F[1] * dy + F[2] * dz;
         const mX = 30, mT = 30,
-          mB = view === "chase" ? Math.max(96, H * 0.16) + 14 : 34;
+          mB = view === "chase" ? Math.max(96, H * 0.16) + 14 : H * 0.36; // cockpit: clear the dash band
         let sx, sy, edge = true;
         if (vz > 20 && cam.project(lm.x, lm.y, lm.z)) {
           sx = cam.out[0]; sy = cam.out[1];
