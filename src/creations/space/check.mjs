@@ -170,7 +170,7 @@ const SCEN = {
     // aim at the next gate's edge, hands off, let momentum carry through
     ["eval", `(() => {
       const s = window.__space, g = [...s.course.gates]
-        .filter(g => g.state === 0 && g.z < s.cam.z - 80)
+        .filter(g => g.state === 0 && g.kind === "ring" && g.z < s.cam.z - 80)
         .sort((a, b) => b.z - a.z)[0];
       if (!g) return "nogate";
       s.auto = false;
@@ -186,7 +186,7 @@ const SCEN = {
     [7000],
     ["eval", `(() => {
       const s = window.__space, g = [...s.course.gates]
-        .filter(g => g.state === 0 && g.z < s.cam.z - 80)
+        .filter(g => g.state === 0 && g.kind === "ring" && g.z < s.cam.z - 80)
         .sort((a, b) => b.z - a.z)[0];
       if (!g) return "nogate";
       s.auto = false;
