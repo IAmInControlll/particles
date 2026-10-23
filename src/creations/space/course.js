@@ -1,6 +1,8 @@
-// course.js - corridor path, starfield shell, gate rings, tumbling rocks.
+// course.js - corridor path, starfield shell, gate kinds, rocks + rubble fields.
 // Bodies are fixed design-space point lists rigidly anchored to world
 // positions, projected through cam.project into home[] every frame.
+import { createSky } from "./sky.js";
+
 export function createCourse(field, cam, PF, layers) {
   const rnd = PF.rnd;
   const home = field.home, hcol = field.hcol, snap = field.snap,
@@ -10,13 +12,27 @@ export function createCourse(field, cam, PF, layers) {
   const trackX = (z) => 230 * Math.sin(z / 2400) + 120 * Math.sin(z / 900 + 2.1);
   const trackY = (z) => 150 * Math.cos(z / 3100) + 90 * Math.sin(z / 1100 + 1.3);
 
+  // sun direction: the sky compass and the single light every body shares
+  const sd = [-0.3, 0.45, -0.84];
+  const sl2 = Math.hypot(sd[0], sd[1], sd[2]);
+  const SUN = [sd[0] / sl2, sd[1] / sl2, sd[2] / sl2];
+  const LIGHT = SUN;
+  // painted backdrop + the leg's giant world; its particles take the
+  // planets layer's tail
+  const PL = layers.planets;
+  const GI_N = Math.min(420, ((PL.hi - PL.lo) * 0.19) | 0);
+  const sky = createSky(field, cam, PF, { lo: PL.hi - GI_N, hi: PL.hi }, SUN);
+
   // --- stars: dim white points in a sphere SHELL AROUND THE CAMERA, not a
   // forward slab - space surrounds the ship in every direction. Points are
   // world-anchored while in range (true parallax); a star that exits the
   // shell respawns at a random direction on it. ~1/4 ride the deep shell
   // for slow far-field parallax at max speed.
   const S = layers.stars;
-  const SN = S.hi - S.lo;
+  // glints: a few named bright stars at infinity with screen-aligned
+  // diffraction spikes (core + 2 pts per arm), on the stars layer's tail
+  const GL = S.hi - S.lo > 1500 ? 14 : 4, GLN = GL * 9;
+  const SN = S.hi - S.lo - GLN;
   const STAR_R = 4300, STAR_R2 = STAR_R * STAR_R;
   const sx = new Float32Array(SN), sy = new Float32Array(SN), sz = new Float32Array(SN);
   const sCol = new Float32Array(SN * 3), sSize = new Float32Array(SN);
@@ -49,10 +65,8 @@ export function createCourse(field, cam, PF, layers) {
     sz[i] = ncz[c] + (rnd() - 0.5) * 320;
     sSize[i] = 1.7 + rnd() * 1.6;
     sZ[i] = 0.9;
-    const v = rnd();
-    const cc = v < 0.34 ? [0.34, 0.42, 0.72] : v < 0.58 ? [0.5, 0.35, 0.66]
-      : v < 0.78 ? [0.28, 0.52, 0.58] : v < 0.92 ? [0.58, 0.34, 0.38] : PF.PAL.dim;
-    const lum = 0.09 + rnd() * 0.14;
+    const cc = sky.haze(rnd()); // near haze agrees with the painted clouds
+    const lum = 0.1 + rnd() * 0.16;
     sCol[i * 3] = cc[0] * lum; sCol[i * 3 + 1] = cc[1] * lum; sCol[i * 3 + 2] = cc[2] * lum;
   };
   // Spawn a star in a tunnel around the flight axis: axial offset runs
@@ -103,10 +117,11 @@ export function createCourse(field, cam, PF, layers) {
     const lum = deep ? 0.34 + rnd() * 0.4
       : c < 0.15 ? 0.95 + rnd() * 0.35
       : 0.6 + rnd() * 0.4;
-    // mostly white; a slice of pale blue / warm amber stars for variety
-    const cc = c < 0.28 ? PF.PAL.dim
-      : c < 0.38 ? [0.62, 0.72, 1.0]
-      : c < 0.48 ? [1.0, 0.82, 0.62]
+    // mostly white; real slices of blue-white, amber and red-giant stars
+    const cc = c < 0.22 ? PF.PAL.dim
+      : c < 0.36 ? [0.6, 0.74, 1.0]
+      : c < 0.46 ? [1.0, 0.8, 0.56]
+      : c < 0.5 ? [1.0, 0.56, 0.44]
       : PF.PAL.ink;
     sTw[i] = !deep && rnd() < 0.12 ? 1.6 + rnd() * 3.4 : 0;
     sCol[i * 3] = cc[0] * lum; sCol[i * 3 + 1] = cc[1] * lum; sCol[i * 3 + 2] = cc[2] * lum;
@@ -119,6 +134,18 @@ export function createCourse(field, cam, PF, layers) {
     noFlock[S.lo + i] = 1;
     const j = (S.lo + i) * 3;
     hcol[j] = sCol[i * 3]; hcol[j + 1] = sCol[i * 3 + 1]; hcol[j + 2] = sCol[i * 3 + 2];
+  }
+  const glD = new Float32Array(GL * 3), glC = new Float32Array(GL * 3), glS = new Float32Array(GL);
+  for (let k = 0; k < GL; k++) {
+    // mostly in the forward half-sky, a couple behind
+    const yaw = (rnd() - 0.5) * (k < GL - 3 ? 2.8 : 6.2), pitch = (rnd() - 0.5) * 1.3;
+    glD[k * 3] = Math.sin(yaw) * Math.cos(pitch);
+    glD[k * 3 + 1] = Math.sin(pitch);
+    glD[k * 3 + 2] = -Math.cos(yaw) * Math.cos(pitch);
+    const c = k % 3 === 0 ? [0.7, 0.82, 1.0] : k % 3 === 1 ? [1.0, 0.86, 0.66] : PF.PAL.ink;
+    glC[k * 3] = c[0]; glC[k * 3 + 1] = c[1]; glC[k * 3 + 2] = c[2];
+    glS[k] = 0.8 + rnd() * 0.5;
+    for (let m = 0; m < 9; m++) noFlock[S.hi - GLN + k * 9 + m] = 1;
   }
 
   // --- gates: ring bodies in the xy plane at a corridor point ---
@@ -163,10 +190,10 @@ export function createCourse(field, cam, PF, layers) {
   const GOLD = [1.0, 0.76, 0.28], VIOLET = [0.62, 0.5, 1.0], BAR = [1.0, 0.36, 0.24],
     RUBC = [0.78, 0.64, 0.52];
   const KINDS = {
-    ring: { shape: RING, col: PF.PAL.sky, unlock: 0, w: 5, ramp: 0 },
+    ring: { shape: RING, col: PF.PAL.sky, unlock: 0, w: 3, ramp: 0 },
     drift: {
       shape: RING, col: VIOLET, unlock: 0, w: 2, ramp: 0.5,
-      intro: "drift gate - it slides, track it", hex: "#a090ff",
+      intro: "drifting relay - lost station-keeping, track it", hex: "#a090ff",
       spawn: (g) => { g.ph = rnd() * 6.283; g.amp = 40 + rnd() * 45; },
       move: (g) => {
         // slow lissajous around the corridor point - readable, trackable
@@ -176,16 +203,16 @@ export function createCourse(field, cam, PF, layers) {
       },
     },
     boost: {
-      shape: RING, col: GOLD, unlock: 1, w: 1, ramp: 0,
-      intro: "gold gate - boost refill and surge", hex: "#ffc247",
+      shape: RING, col: GOLD, unlock: 1, w: 0.8, ramp: 0,
+      intro: "overcharged relay - burn through for boost", hex: "#ffc247",
     },
     rocks: {
       shape: RING, col: PF.PAL.sky, unlock: 1, w: 1.2, ramp: 0.6, field: true,
-      intro: "rock field - hold the clear line", hex: "#c8b49a",
+      intro: "debris field - relay chain runs through it", hex: "#c8b49a",
     },
     spin: {
-      shape: SPIN, col: PF.PAL.sky, unlock: 2, w: 1.6, ramp: 0.8,
-      intro: "spinner gate - thread the gap", hex: "#ff6a4a",
+      shape: SPIN, col: PF.PAL.sky, unlock: 2, w: 1.8, ramp: 0.8,
+      intro: "damaged relay - thread the gap", hex: "#ff6a4a",
       spawn: (g) => { g.ang = rnd() * 3.1416; g.spinV = (rnd() < 0.5 ? -1 : 1) * (0.6 + rnd() * 0.35); },
       move: (g, dt) => {
         g.ang += g.spinV * dt;
@@ -232,17 +259,12 @@ export function createCourse(field, cam, PF, layers) {
   // as a lit ball) plus 0-2 ring bands in its equatorial plane. World-
   // anchored; respawns far ahead when it exits behind, so they double
   // as heading markers you can actually fly up to.
-  const PL = layers.planets;
-  const PN = PL.hi - PL.lo;
+  const PN = PL.hi - PL.lo - GI_N;
   // sun: a compass fixed at infinite range in a constant world direction.
   // It rides WITH the camera (no parallax) so it never leaves the sky;
   // the same vector is the planets' light source so shading agrees.
   const SUN_N = Math.min(150, Math.max(40, (PN * 0.15) | 0));
   const SUN_D = 30000;
-  const sd = [-0.3, 0.45, -0.84];
-  const sl2 = Math.hypot(sd[0], sd[1], sd[2]);
-  const SUN = [sd[0] / sl2, sd[1] / sl2, sd[2] / sl2];
-  const LIGHT = SUN;
   // basis spanning the plane facing the sun's direction
   let se1 = [-SUN[2], 0, SUN[0]];
   const sel = Math.hypot(se1[0], se1[2]) || 1;
@@ -474,7 +496,7 @@ export function createCourse(field, cam, PF, layers) {
   };
   for (const pl of planets) spawnPlanet(pl);
 
-  const course = { trackX, trackY, gates, rocks, planets, landmark: lm, SUN,
+  const course = { trackX, trackY, gates, rocks, planets, landmark: lm, SUN, sky,
     sunVis: false, sunX: 0, sunY: 0,
     respawnLm: (leg) => {
       if (lm.done) return;
@@ -570,6 +592,7 @@ export function createCourse(field, cam, PF, layers) {
   course.reset = () => {
     lm.leg = 0; lm.done = false; // each run replays the campaign fresh
     spawnSeq = 0; endZ = 0;
+    sky.reset();
     seen.clear();
     for (const m of course.mix) for (const id in m) delete m[id];
     for (const k of rocks) k.dead = true;
@@ -619,13 +642,20 @@ export function createCourse(field, cam, PF, layers) {
         for (let i = 0; i < SN; i++) if (sk[i] === 2 && sCl[i] === c) scatterNeb(i);
       }
     }
+    // sky first: the giant's disc this frame occludes the far star shell
+    sky.frame(dt, stage(), lm.done ? Math.max(0, ((endZ - cam.z) / 40000) | 0) : 0, snapMode);
+    const behindGiant = () => {
+      const ex = o[0] - sky.gx, ey = o[1] - sky.gy;
+      return ex * ex + ey * ey < sky.gr2;
+    };
     for (let i = 0; i < SN; i++) {
       const p = S.lo + i, j = p * 3;
       const dx = sx[i] - cam.x, dy = sy[i] - cam.y, dz = sz[i] - cam.z;
       const d2 = dx * dx + dy * dy + dz * dz;
       const axial = dx * cam.fwd[0] + dy * cam.fwd[1] + dz * cam.fwd[2];
       if (d2 > STAR_R2 || axial < -1800) respawnStar(i);
-      if (!cam.project(sx[i], sy[i], sz[i])) {
+      // haze clusters are local - they drift in front of the giant
+      if (!cam.project(sx[i], sy[i], sz[i]) || (sk[i] !== 2 && behindGiant())) {
         home[j] = -5e3; home[j + 1] = -5e3; home[j + 2] = 0;
         snap[p] = 1;
         continue;
@@ -637,6 +667,33 @@ export function createCourse(field, cam, PF, layers) {
       hcol[j] = sCol[i * 3] * starGain * tw;
       hcol[j + 1] = sCol[i * 3 + 1] * starGain * tw;
       hcol[j + 2] = sCol[i * 3 + 2] * starGain * tw;
+    }
+
+    // glints: core + four screen-aligned spikes, lengths breathing
+    for (let k = 0; k < GL; k++) {
+      const p0 = S.hi - GLN + k * 9;
+      if (!cam.project(cam.x + glD[k * 3] * 1e6, cam.y + glD[k * 3 + 1] * 1e6, cam.z + glD[k * 3 + 2] * 1e6) || behindGiant()) {
+        for (let m = 0; m < 9; m++) {
+          const j = (p0 + m) * 3;
+          home[j] = -5e3; home[j + 1] = -5e3; home[j + 2] = 0; snap[p0 + m] = 1;
+        }
+        continue;
+      }
+      const x = o[0], y = o[1];
+      const tw = 0.8 + 0.2 * Math.sin(stT * 1.7 * glS[k] + k * 2.3);
+      const sp = 5.5 * glS[k] * tw;
+      for (let m = 0; m < 9; m++) {
+        const p = p0 + m, j = p * 3;
+        const arm = (m - 1) >> 1, far = (m - 1) & 1;
+        const dx = m === 0 ? 0 : arm === 0 ? 1 : arm === 1 ? -1 : 0;
+        const dy = m === 0 ? 0 : arm === 2 ? 1 : arm === 3 ? -1 : 0;
+        homed[p] = 1;
+        home[j] = x + dx * sp * (1 + far); home[j + 1] = y + dy * sp * (1 + far) * 0.9; home[j + 2] = 0.9;
+        snap[p] = 1; // screen-locked: spikes must not spring-lag the core
+        const L = (m === 0 ? 1.5 : far ? 0.32 : 0.7) * tw * starGain;
+        size[p] = (m === 0 ? 2.3 : far ? 0.75 : 1.05) * glS[k];
+        hcol[j] = glC[k * 3] * L; hcol[j + 1] = glC[k * 3 + 1] * L; hcol[j + 2] = glC[k * 3 + 2] * L;
+      }
     }
 
     // recycle + write gates; nearest pending gate gets the highlight
@@ -839,10 +896,14 @@ export function createCourse(field, cam, PF, layers) {
       for (let i = 0; i < k.n; i++) {
         const p = k.lo + i, j = p * 3;
         if (k.dead) { homed[p] = 0; size[p] = 0; continue; }
-        size[p] = k.rub ? 1.25 : 1.1;
         const bx = k.body[i * 3] * cs - k.body[i * 3 + 2] * sn;
         const bz = k.body[i * 3] * sn + k.body[i * 3 + 2] * cs;
-        const wx = k.x + bx * k.r, wy = k.y + k.body[i * 3 + 1] * k.r, wz = k.z + bz * k.r;
+        const by = k.body[i * 3 + 1];
+        const wx = k.x + bx * k.r, wy = k.y + by * k.r, wz = k.z + bz * k.r;
+        // sunlit face: the lump direction doubles as the surface normal
+        const lit = 0.3 + 1.1 * Math.max(0, (bx * LIGHT[0] + by * LIGHT[1] + bz * LIGHT[2]) /
+          (Math.hypot(bx, by, bz) || 1));
+        size[p] = (k.rub ? 1.7 : 1.1) * (0.8 + lit * 0.3);
         if (!cam.project(wx, wy, wz)) {
           home[j] = -5e3; home[j + 1] = -5e3; home[j + 2] = 0;
           snap[p] = 1;
@@ -854,9 +915,9 @@ export function createCourse(field, cam, PF, layers) {
         if (snapMode) snap[p] = 1;
         // rubble runs warmer so a field reads as one body of debris
         const rc = k.rub ? RUBC : PF.PAL.mist;
-        hcol[j] = rc[0] * 0.55;
-        hcol[j + 1] = rc[1] * 0.55;
-        hcol[j + 2] = rc[2] * 0.62;
+        hcol[j] = rc[0] * 0.55 * lit;
+        hcol[j + 1] = rc[1] * 0.55 * lit;
+        hcol[j + 2] = rc[2] * 0.62 * lit;
       }
     }
   };

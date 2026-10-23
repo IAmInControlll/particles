@@ -612,12 +612,49 @@ const SCEN = {
   // world-mix: long autopilot run stepped through every campaign stage
   // via the game's own leg hooks; probes the kinds rolled per stage
   "world-mix": [
-    ["reload"], [1500], ["eval", "window.__space.auto = true"], [14000],
-    ["eval", "__space.course.respawnLm(1)"], [14000],
-    ["eval", "__space.course.respawnLm(2)"], [14000],
-    ["eval", "__space.course.finishStory()"], [14000],
+    ["reload"], [1500], ["eval", "window.__space.auto = true"],
+    ["eval", `(() => {
+      const c = __space.course, ck = c.check, ev = window.__ev = {};
+      c.check = (z) => { const e = ck(z); if (e) { const k = e.type + ":" + e.kind; ev[k] = (ev[k] || 0) + 1; } return e; };
+      return 1;
+    })()`],
+    [18000],
+    ["eval", "__space.course.respawnLm(1)"], [18000],
+    ["eval", "__space.course.respawnLm(2)"], [18000],
+    ["eval", "__space.course.finishStory()"], [18000],
     ["probe", "mix", "__space.course.mix"],
+    ["probe", "events", "window.__ev"],
     ["probe", "run", "({lives: __space.run.lives, dist: __space.run.dist | 0, gates: __space.run.gatesPassed})"],
+  ],
+  // world-sky: the painted sky + giant from several headings, then the
+  // leg-2/3 moods after the crossfade (5s) and giant re-anchor (~5s)
+  "world-sky": [
+    ["reload"], [1500],
+    ["eval", `window.__look = (v) => {
+      const s = __space;
+      s.auto = false; s.keys.KeyW = false;
+      s.cam.vx = s.cam.vy = s.cam.vz = 0; s.cam.yv = s.cam.pv = s.cam.rv = 0; s.cam.roll = 0;
+      s.cam.pitch = Math.asin(Math.max(-1, Math.min(1, v[1])));
+      s.cam.yaw = Math.atan2(-v[0], -v[2]);
+      s.cam.update(0.016, s.keys);
+      return 1;
+    }; window.__toGiant = () => { const s = __space, g = s.course.sky.giant;
+      const d = [g.x - s.cam.x, g.y - s.cam.y, g.z - s.cam.z], l = Math.hypot(...d);
+      return __look(d.map(x => x / l)); }; 1`],
+    ["eval", "__look([0, 0, -1])"], [700], ["shot", "world-sky-fwd"],
+    ["eval", "__look([-1, 0.05, 0])"], [700], ["shot", "world-sky-left"],
+    ["eval", "__look([1, 0.05, 0])"], [700], ["shot", "world-sky-right"],
+    ["eval", "__look(__space.course.SUN)"], [700], ["shot", "world-sky-sun"],
+    ["eval", "__toGiant()"], [700],
+    ["probe", "giant", "({vis: __space.course.sky.giantVis, px: __space.course.sky.giantPx | 0, mood: __space.course.sky.mood})"],
+    ["shot", "world-sky-giant"],
+    ["eval", "__look([0, 0, 1])"], [700], ["shot", "world-sky-back"],
+    ["eval", "__space.course.respawnLm(1); __look([0, 0, -1])"], [11000],
+    ["eval", "__toGiant()"], [700],
+    ["probe", "giant2", "({vis: __space.course.sky.giantVis, px: __space.course.sky.giantPx | 0, mood: __space.course.sky.mood})"],
+    ["shot", "world-sky-leg2-giant"],
+    ["eval", "__look([0.3, 0.1, -1])"], [700], ["shot", "world-sky-leg2-fwd"],
+    ["eval", "__space.course.respawnLm(2)"], [11000], ["eval", "__toGiant()"], [700], ["shot", "world-sky-leg3-giant"],
   ],
   // world-perf: mean rAF interval and mean game.frame JS time over ~4s of
   // autopilot (headless rAF is vsync-capped, so frameMs is the sharper signal)

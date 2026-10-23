@@ -21,8 +21,8 @@ export function createSpace(field, PF, mods = {}) {
     cockpit: { lo: 0, hi: cut(0.10) },
     ent: { lo: cut(0.10), hi: cut(0.36) },
     course: { lo: cut(0.36), hi: cut(0.55) },
-    planets: { lo: cut(0.55), hi: cut(0.68) }, // sun + derelict + planets
-    stars: { lo: cut(0.68), hi: cut(0.89) },
+    planets: { lo: cut(0.55), hi: cut(0.70) }, // sun + derelict + planets + giant
+    stars: { lo: cut(0.70), hi: cut(0.89) },
     fx: { lo: cut(0.89), hi: N },
   };
   // world layers sit under the hull backing - cull keeps them in the panes
