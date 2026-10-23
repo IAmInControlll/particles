@@ -182,7 +182,8 @@ export function createComms(cast, onLine) {
 
     const s = Math.max(0.8, Math.min(1.15, W / 1600));
     const r = 30 * s, px = 14 * s, x0 = 18 * s, y0 = 18 * s;
-    const bx = x0 + r * 2 + 16 * s, bw = Math.min(400 * s, W * 0.34 - bx);
+    // a third of a wide screen keeps the centre clear; narrow screens get the row
+    const bx = x0 + r * 2 + 16 * s, bw = Math.min(400 * s, (W < 900 ? W - 16 : W * 0.34) - bx);
     const lines = wrap(cur.text, px, bw - 24 * s);
     const bh = 64 * s + lines.length * px * 1.35;
 
