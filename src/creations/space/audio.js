@@ -1,8 +1,10 @@
 // audio.js - WebAudio bleeps + engine hum. The AudioContext is created or
 // resumed on the first user gesture (au.unlock from the picker/keys); every
 // call before that is a no-op. M toggles mute, persisted in space.mute.
+import { createMusic } from "./music.js";
 export function createAudio() {
-  let ctx = null, master = null, eng = null, noiseBuf = null;
+  let ctx = null, master = null, eng = null, noiseBuf = null, mus = null;
+  let musMood = "pick", musK = 0;
   let muted = false;
   try { muted = localStorage.getItem("space.mute") === "1"; } catch {}
   let engK = 0, engB = false;
@@ -32,6 +34,9 @@ export function createAudio() {
       o1.start(); o2.start();
       eng = { o1, o2, lp, eg };
       au.engine(engK, engB);
+      mus = createMusic(ctx, master);
+      mus.set(musMood, musK);
+      mus.start();
     }
     if (ctx.state === "suspended") ctx.resume().catch(() => {});
   };
@@ -56,6 +61,13 @@ export function createAudio() {
     eng.lp.frequency.setTargetAtTime(200 + speedK * 640 + (boosting ? 560 : 0), t, 0.11);
     eng.eg.gain.setTargetAtTime(0.014 + speedK * 0.07 + (boosting ? 0.05 : 0), t, 0.1);
   };
+
+  // adaptive score; mood is one of the MOODS keys in music.js (unknown -> race)
+  au.music = (mood, speedK) => {
+    musMood = mood; musK = speedK;
+    if (mus) mus.set(mood, speedK);
+  };
+  au.musicStats = () => mus && mus.stats();
 
   const tone = (type, f0, f1, dur, g0, t0 = 0) => {
     const t = ctx.currentTime + t0;
@@ -105,6 +117,13 @@ export function createAudio() {
         o.type = "sawtooth"; o.frequency.value = 98; o.detune.value = det;
         o.connect(lp); o.start(t); o.stop(t + 1.3);
       }
+    },
+    tick: () => { tone("square", 2300, 1500, 0.03, 0.035); tone("sine", 3400, 2600, 0.05, 0.03); },
+    // radio squelch: filtered noise burst, then a two-note blip
+    comms: () => {
+      noise(0.09, 4200, 0.07);
+      tone("square", 1250, 1250, 0.05, 0.03, 0.05);
+      tone("square", 1700, 1700, 0.06, 0.03, 0.12);
     },
     over: () => { tone("triangle", 300, 52, 1.3, 0.16); noise(0.7, 300, 0.07); },
   };
