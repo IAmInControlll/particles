@@ -18,7 +18,7 @@ export function createDeck(cam, field) {
   const fg = far.getContext("2d"), ng = near.getContext("2d");
   const msgEl = document.getElementById("hud-msg");
   const TAU = 6.2832;
-  let W = 0, H = 0, dpr = 1, cx = 0, cy = 0, frame = null, INST = [];
+  let W = 0, H = 0, dpr = 1, cx = 0, cy = 0, frame = null, INST = [], BOX = [];
   let swayX = 0, swayY = 0, deckT = 0, hitT = 0;
   // "cockpit": opaque hull backing + pane cutouts + cull mask. "chase":
   // no backing at all (third-person, no canopy) - instruments repack as
@@ -26,7 +26,7 @@ export function createDeck(cam, field) {
   let view = "cockpit";
   // mask state: refreshed each frame, consumed by cull()
   let mCos = 1, mSin = 0, mTx = 0, mTy = 0, fCos = 1, fSin = 0, fTx = 0, fTy = 0;
-  let PANES = [], BLK = [];
+  let PANES = [], BLKN = [], BLKF = [], HB = [];
 
   const GRN = "#8fd8b0", AMB = "#e8b060", BLU = "#7ea8e8", RED = "#e85444",
     DIM = "#3d5a54",
@@ -82,17 +82,30 @@ export function createDeck(cam, field) {
     c.beginPath(); c.arc(X(x), Y(y), 1.4, 0, TAU);
     c.fillStyle = "rgba(190,215,220,.10)"; c.fill();
   };
-  // tapered hull beam between two unit points; gradient dims toward the far end
+  // tapered hull beam between two unit points, lit across its width: the
+  // upward-facing edge catches light, a specular line runs just inside it,
+  // so pillars read as steel against black space
   const beam = (c, s) => {
     const ax = X(s.p0[0]), ay = Y(s.p0[1]), bx = X(s.p1[0]), by = Y(s.p1[1]);
     const dx = bx - ax, dy = by - ay, L = Math.hypot(dx, dy) || 1;
-    const px = -dy / L, py = dx / L, q0 = s.w0 * cy, q1 = s.w1 * cy;
-    const gr = c.createLinearGradient(ax, ay, bx, by);
-    gr.addColorStop(0, "#080d11"); gr.addColorStop(1, "#0e1419");
+    let px = -dy / L, py = dx / L;
+    if (py > 0) { px = -px; py = -py; } // +p = the side facing up
+    const q0 = s.w0 * cy, q1 = s.w1 * cy, qm = (q0 + q1) / 2;
+    const mx = (ax + bx) / 2, my = (ay + by) / 2;
+    const gr = c.createLinearGradient(mx + px * qm, my + py * qm, mx - px * qm, my - py * qm);
+    gr.addColorStop(0, "#2a3740");
+    gr.addColorStop(0.18, "#18222a");
+    gr.addColorStop(0.7, "#0c1217");
+    gr.addColorStop(1, "#05080b");
     plate(c, [
       [ax + px * q0, ay + py * q0], [bx + px * q1, by + py * q1],
       [bx - px * q1, by - py * q1], [ax - px * q0, ay - py * q0],
     ], gr);
+    c.strokeStyle = "rgba(170,200,210,.16)"; c.lineWidth = 1;
+    c.beginPath();
+    c.moveTo(ax + px * q0 * 0.72, ay + py * q0 * 0.72);
+    c.lineTo(bx + px * q1 * 0.72, by + py * q1 * 0.72);
+    c.stroke();
   };
   // strip between two edges; loop = closed ring filled even-odd
   const bandFill = (c, b) => {
@@ -135,9 +148,9 @@ export function createDeck(cam, field) {
       seg(c, hw * 0.62, hh * 0.42 - t * sh - sh * 0.62, bw, sh * 0.62, lit, col);
     }
     text(c, "BST", -hw * 0.88, hh * 0.72, hh * 0.2, DIM);
-    const bn = 10, bw2 = hw * 1.5 / bn;
+    const bn = 10, bw2 = hw * 1.36 / bn;
     for (let t = 0; t < bn; t++)
-      seg(c, -hw * 0.62 + t * bw2, hh * 0.6, bw2 * 0.68, hh * 0.24, t / bn < st.cam.boost, AMB);
+      seg(c, -hw * 0.48 + t * bw2, hh * 0.6, bw2 * 0.68, hh * 0.24, t / bn < st.cam.boost, AMB);
   };
   const drawNav = (c, st, hw, hh) => {
     text(c, "SCR", -hw * 0.88, -hh * 0.5, hh * 0.24, DIM);
@@ -169,7 +182,7 @@ export function createDeck(cam, field) {
   };
   const drawMsg = (c, st, hw, hh) => {
     const s = +msgEl.style.opacity > 0 ? msgEl.textContent : "";
-    if (s) text(c, s, 0, 0, hh * 0.5, GRN, "center", 6);
+    if (s) text(c, s, 0, 0, Math.min(hh * 0.5, hw * 0.2), GRN, "center", 6);
     else text(c, "SYS NOMINAL", 0, 0, hh * 0.4, DIM, "center");
   };
   const drawRdr = (c, st, hw, hh) => {
@@ -235,42 +248,47 @@ export function createDeck(cam, field) {
   };
   // PWR: the active-powerups tracker. Row labels share the pickup tag
   // colors so a gold BST ring in the world reads as this bar on the dash.
+  // Four label|gauge rows under the housing's own caps label (which sits
+  // in the top ~22% of the box), so nothing overprints it.
   const drawSys = (c, st, hw, hh) => {
+    const gx = -hw * 0.3, gw = hw * 1.18, gh = hh * 0.17, fs = Math.max(8, hh * 0.2);
+    const row = (k) => -hh * 0.36 + k * hh * 0.4;
     const bar = (y, f, col) => {
       c.fillStyle = "rgba(140,170,175,.07)";
-      c.fillRect(-hw * 0.38, y, hw * 1.26, hh * 0.16);
+      c.fillRect(gx, y - gh / 2, gw, gh);
       c.fillStyle = col;
       c.shadowColor = col; c.shadowBlur = 6;
-      c.fillRect(-hw * 0.38, y, hw * 1.26 * Math.max(0, Math.min(1, f)), hh * 0.16);
+      c.fillRect(gx, y - gh / 2, gw * Math.max(0, Math.min(1, f)), gh);
       c.shadowBlur = 0;
     };
-    text(c, "BST", -hw * 0.88, -hh * 0.72, hh * 0.22, AMB);
-    bar(-hh * 0.5, st.cam.boost, AMB);
-    text(c, "HUL", -hw * 0.88, -hh * 0.28, hh * 0.22, GRN);
-    bar(-hh * 0.06, st.run.hull / (st.run.hullMax || 3), st.run.hull <= 1 ? RED : GRN);
-    text(c, "SHD", -hw * 0.88, hh * 0.16, hh * 0.22, BLU);
-    const sw = hw * 1.26 / 6;
+    text(c, "BST", -hw * 0.88, row(0), fs, AMB);
+    bar(row(0), st.cam.boost, AMB);
+    text(c, "HUL", -hw * 0.88, row(1), fs, GRN);
+    bar(row(1), st.run.hull / (st.run.hullMax || 3), st.run.hull <= 1 ? RED : GRN);
+    text(c, "SHD", -hw * 0.88, row(2), fs, BLU);
+    const sw = gw / 6;
     for (let t = 0; t < 6; t++)
-      seg(c, -hw * 0.38 + t * sw, hh * 0.38, sw * 0.78, hh * 0.16, t < st.run.shield, BLU);
-    text(c, "LIVES", -hw * 0.88, hh * 0.62, hh * 0.22, DIM);
+      seg(c, gx + t * sw, row(2) - gh / 2, sw * 0.78, gh, t < st.run.shield, BLU);
+    text(c, "LIV", -hw * 0.88, row(3), fs, DIM);
     for (let t = 0; t < 5; t++) {
-      c.beginPath(); c.arc(-hw * 0.42 + t * hw * 0.21, hh * 0.78, hh * 0.062, 0, TAU);
+      c.beginPath(); c.arc(gx + hh * 0.07 + t * hh * 0.16, row(3), hh * 0.065, 0, TAU);
       c.fillStyle = t < st.run.lives ? GRN : "rgba(140,170,175,.07)";
       c.fill();
     }
     // post-hit invulnerability is an active buff too - count it down
     if (st.run.invuln > 0)
-      text(c, `INV ${st.run.invuln.toFixed(1)}`, hw * 0.42, hh * 0.78, hh * 0.2, RED);
+      text(c, `INV ${st.run.invuln.toFixed(1)}`, gx + gw, row(3), fs, RED, "right");
   };
   const DRAW = { spd: drawSpd, nav: drawNav, wrn: drawWrn, com: drawMsg, rdr: drawRdr, sys: drawSys };
 
   // recessed housing: bezel ring, dark glass, inner top shadow, caps label
-  const house = (c, inst) => {
+  const house = (c, b) => {
+    const inst = b.inst;
     c.save();
-    c.translate(X(inst.x), Y(inst.y));
-    if (inst.rot) c.rotate(inst.rot);
+    c.translate(b.x, b.y);
+    c.rotate(b.rot);
     if (inst.r) {
-      const r = UH(inst.r);
+      const r = b.hh;
       c.beginPath(); c.arc(0, 0, r + 5, 0, TAU);
       c.fillStyle = "#141b21"; c.fill();
       c.strokeStyle = ED; c.lineWidth = 2; c.stroke();
@@ -282,7 +300,7 @@ export function createDeck(cam, field) {
       c.restore();
       text(c, inst.label, 0, r * 0.72, Math.max(8, r * 0.16 | 0), DIM, "center");
     } else {
-      const w = UW(inst.w), h = UH(inst.h);
+      const w = b.hw * 2, h = b.hh * 2;
       rrect(c, -w / 2 - 5, -h / 2 - 5, w + 10, h + 10, 5);
       c.fillStyle = "#141b21"; c.fill();
       c.strokeStyle = ED; c.lineWidth = 1.6; c.stroke();
@@ -296,6 +314,27 @@ export function createDeck(cam, field) {
       text(c, inst.label, -w / 2 + 5, -h / 2 + h * 0.11, Math.max(8, h * 0.11 | 0), DIM);
     }
     c.restore();
+  };
+
+  // instrument boxes in near-layer px. Landscape uses the frame's dash
+  // placement; portrait squeezes unit x too hard for it, so the panels
+  // repack into a 2x3 grid across the bottom. Chase reuses the grid as
+  // its floating strip. hh is capped by hw: the draw fns lay text out
+  // for wide-ish panels.
+  const grid = (cols, top, bot = H) => {
+    const rows = Math.ceil(INST.length / cols), cw = W / cols, ch = (bot - top) / rows;
+    return INST.map((inst, k) => ({
+      inst, x: cw * ((k % cols) + 0.5), y: top + ch * (((k / cols) | 0) + 0.55), rot: 0,
+      hw: cw * 0.44, hh: Math.min(ch * 0.38, cw * 0.26),
+    }));
+  };
+  const layout = () => {
+    if (view === "chase") BOX = grid(W < H ? 3 : INST.length, H - Math.max(96, H * 0.16));
+    else if (W < H) BOX = grid(2, H - Math.max(150, H * 0.28) - 22, H - 22); // clear of the home link
+    else BOX = INST.map((inst) => ({
+      inst, x: X(inst.x), y: Y(inst.y), rot: inst.rot || 0,
+      hw: inst.r ? UH(inst.r) : UW(inst.w) / 2, hh: UH(inst.r || inst.h / 2),
+    }));
   };
 
   // members at one depth: struts as tapered beams, bands as strips, pods
@@ -332,11 +371,15 @@ export function createDeck(cam, field) {
     ng.strokeStyle = "rgba(150,185,195,.12)"; ng.lineWidth = 1.5;
     for (const p of frame.panes) { poly(ng, P(p.pts)); ng.stroke(); }
     members(ng, false);
-    for (const inst of INST) house(ng, inst);
+    for (const b of BOX) house(ng, b);
   };
 
-  // cull mask: pane bboxes in unit space, plus far members as blocker
-  // segments so stars can't shine through the deep frame inside a pane
+  // cull mask: pane polys in unit space, plus every member as a tapered
+  // capsule blocker so stars can't shine through frame drawn over glass.
+  // Blockers live in iso units (x scaled by cx/cy, so 1 = cy px both
+  // ways): member widths are cy-relative and a capsule test only matches
+  // the painted beam when both axes share a scale. Each layer is tested
+  // in its own sway transform.
   const buildMask = () => {
     PANES = frame.panes.map((p) => {
       let x0 = 9, x1 = -9, y0 = 9, y1 = -9;
@@ -346,30 +389,25 @@ export function createDeck(cam, field) {
       }
       return { pts: p.pts, x0, x1, y0, y1 };
     });
-    BLK = [];
-    for (const s of frame.struts)
-      if ((s.z0 + s.z1) / 2 < ZSPLIT || s.blk) {
-        // painted half-width is w*cy px; a vertical beam's offset lands on
-        // x, so convert to unit-x (u = px/cx) or the mask runs fat
-        const vert = Math.abs(s.p1[0] - s.p0[0]) < Math.abs(s.p1[1] - s.p0[1]);
-        const hw = Math.max(s.w0, s.w1) * (vert ? cy / cx : 1) + 0.006;
-        BLK.push([s.p0[0], s.p0[1], s.p1[0], s.p1[1], hw]);
-      }
+    const asp = cx / cy, M = 0.004;
+    BLKN = []; BLKF = [];
+    const add = (isFar, a, b, w0, w1) => (isFar ? BLKF : BLKN)
+      .push([a[0] * asp, a[1], b[0] * asp, b[1], w0 + M, w1 + M]);
+    for (const s of frame.struts) add((s.z0 + s.z1) / 2 < ZSPLIT, s.p0, s.p1, s.w0, s.w1);
+    // housing bboxes (rotation-padded, +5px bezel) in near-layer px
+    HB = BOX.map((b) => {
+      const c = Math.abs(Math.cos(b.rot)), s = Math.abs(Math.sin(b.rot));
+      const ex = c * b.hw + s * b.hh + 5, ey = s * b.hw + c * b.hh + 5;
+      return [b.x - ex, b.y - ey, b.x + ex, b.y + ey];
+    });
     for (const b of frame.bands) {
-      if (b.z >= ZSPLIT) continue;
+      // one capsule on the strip midline, radius half its thickness
       const n = Math.min(b.e0.length, b.e1.length), last = b.loop ? n : n - 1;
+      const mid = (i) => [(b.e0[i][0] + b.e1[i][0]) / 2, (b.e0[i][1] + b.e1[i][1]) / 2];
+      const half = (i) => Math.hypot((b.e1[i][0] - b.e0[i][0]) * asp, b.e1[i][1] - b.e0[i][1]) / 2;
       for (let i = 0; i < last; i++) {
         const j = (i + 1) % n;
-        // block the strip's midline, not its edges: a ring per edge ran
-        // half the thickness + margin into open glass on the inner side
-        // (the dead band tracing every pane rim)
-        const t0 = Math.hypot(b.e1[i][0] - b.e0[i][0], b.e1[i][1] - b.e0[i][1]);
-        const t1 = Math.hypot(b.e1[j][0] - b.e0[j][0], b.e1[j][1] - b.e0[j][1]);
-        BLK.push([
-          (b.e0[i][0] + b.e1[i][0]) / 2, (b.e0[i][1] + b.e1[i][1]) / 2,
-          (b.e0[j][0] + b.e1[j][0]) / 2, (b.e0[j][1] + b.e1[j][1]) / 2,
-          Math.max(t0, t1) / 2 + 0.004,
-        ]);
+        add(b.z < ZSPLIT, mid(i), mid(j), half(i), half(j));
       }
     }
   };
@@ -388,17 +426,30 @@ export function createDeck(cam, field) {
     }
     return false;
   };
-  const blocked = (u, v) => {
-    for (const b of BLK) {
+  const blocked = (L, u, v) => {
+    for (const b of L) {
       const dx = b[2] - b[0], dy = b[3] - b[1];
       const L2 = dx * dx + dy * dy || 1e-6;
       let t = ((u - b[0]) * dx + (v - b[1]) * dy) / L2;
       t = t < 0 ? 0 : t > 1 ? 1 : t;
-      const ex = u - (b[0] + dx * t), ey = v - (b[1] + dy * t);
-      if (ex * ex + ey * ey < b[4] * b[4]) return true;
+      const ex = u - (b[0] + dx * t), ey = v - (b[1] + dy * t), r = b[4] + (b[5] - b[4]) * t;
+      if (ex * ex + ey * ey < r * r) return true;
     }
     return false;
   };
+  // screen px -> does a world particle there show through open glass?
+  // Inverts the near/far draw transforms of the last deck.frame.
+  const shows = (hx, hy) => {
+    const dx = hx - cx - mTx, dy = hy - cy - mTy;
+    const iu = (dx * mCos + dy * mSin) / cy, v = (dx * mSin - dy * mCos) / cy;
+    if (!inPane((iu * cy) / cx, v) || blocked(BLKN, iu, v)) return false;
+    const lx = cx + iu * cy, ly = cy - v * cy;
+    for (const r of HB) if (lx > r[0] && lx < r[2] && ly > r[1] && ly < r[3]) return false;
+    const fx = hx - cx - fTx, fy = hy - cy - fTy;
+    return !blocked(BLKF, (fx * fCos + fy * fSin) / cy, (fx * fSin - fy * fCos) / cy);
+  };
+
+  const rebuild = () => { layout(); buildMask(); paintFar(); paintNear(); };
 
   const st = { run: null, cam, world: null, deckT: 0, blink: 1 };
   const deck = {};
@@ -409,27 +460,45 @@ export function createDeck(cam, field) {
     dpr = devicePixelRatio || 1;
     for (const c of [cv, far, near]) { c.width = W * dpr; c.height = H * dpr; }
     for (const c of [g, fg, ng]) c.setTransform(dpr, 0, 0, dpr, 0, 0);
-    if (frame) { paintFar(); paintNear(); }
+    if (frame) rebuild();
   };
 
   deck.paint = (ship) => {
     frame = FRAMES[ship.name] || FRAMES.kestrel;
     INST = frame.inst;
-    if (!W) deck.resize();
-    buildMask();
-    paintFar();
-    paintNear();
+    if (W) rebuild(); else deck.resize();
   };
 
   deck.setView = (m) => {
     view = m === "chase" ? "chase" : "cockpit";
-    if (frame) { paintFar(); paintNear(); }
+    if (frame) rebuild();
   };
 
   deck.hit = () => { hitT = 0.9; };
+  deck.shows = shows;
+
+  // probe: sample the composed deck canvas on a px grid. glass = deck
+  // alpha under 64 (glare tops out ~46); falseShow = mask lets a particle
+  // through onto painted hull, falseHide = mask parks one over open glass.
+  // tl = glass share of the top-left comms-box zone (30% x 22%).
+  deck.fill = (step = 4) => {
+    const d = g.getImageData(0, 0, cv.width, cv.height).data;
+    const pct = (a, b) => +((100 * a) / (b || 1)).toFixed(1);
+    let n = 0, gl = 0, fs = 0, fh = 0, tn = 0, tg = 0;
+    for (let y = step / 2; y < H; y += step)
+      for (let x = step / 2; x < W; x += step) {
+        const a = d[(((y * dpr) | 0) * cv.width + ((x * dpr) | 0)) * 4 + 3];
+        const glass = a < 64, sh = view === "chase" || shows(x, y);
+        n++; if (glass) gl++;
+        if (sh && a > 200) fs++;
+        if (!sh && glass) fh++;
+        if (x < W * 0.3 && y < H * 0.22) { tn++; if (glass) tg++; }
+      }
+    return { glass: pct(gl, n), falseShow: pct(fs, n), falseHide: pct(fh, n), tl: pct(tg, tn) };
+  };
 
   // hide world particles parked behind the hull: a home outside every
-  // pane (or under a far member inside one) is offscreen this frame
+  // pane (or under any member drawn over one) is offscreen this frame
   const home = field.home, snap = field.snap, homed = field.homed;
   deck.cull = (ranges) => {
     if (view === "chase" || !PANES.length) return; // chase: no panes, all world visible
@@ -438,15 +507,7 @@ export function createDeck(cam, field) {
         if (!homed[p]) continue;
         const j = p * 3, hx = home[j], hy = home[j + 1];
         if (hx < -4e3) continue;
-        const dx = hx - cx - mTx, dy = hy - cy - mTy;
-        const u = (dx * mCos + dy * mSin) / cx;
-        const v = (dx * mSin - dy * mCos) / cy;
-        if (inPane(u, v)) {
-          const fx = hx - cx - fTx, fy = hy - cy - fTy;
-          const fu = (fx * fCos + fy * fSin) / cx;
-          const fv = (fx * fSin - fy * fCos) / cy;
-          if (!blocked(fu, fv)) continue;
-        }
+        if (shows(hx, hy)) continue;
         home[j] = -5e3; home[j + 1] = -5e3; home[j + 2] = 0;
         snap[p] = 1;
       }
@@ -480,32 +541,23 @@ export function createDeck(cam, field) {
       g.rotate(roll * 0.4);
       g.drawImage(far, -cx, -cy, W, H);
       g.restore();
-      g.save();
-      g.translate(cx + mTx, cy + mTy);
-      g.rotate(roll);
-      g.drawImage(near, -cx, -cy, W, H);
-      g.restore();
       // canopy glare: the sun burns through open glass - a warm bloom
-      // clipped to the pane shapes so it can never paint over hull steel
+      // painted under the near layer, so hull steel and every member
+      // drawn over the glass occlude it for free
       if (world && world.course && world.course.sunVis) {
-        g.save();
-        g.translate(cx + mTx, cy + mTy);
-        g.rotate(roll);
-        g.translate(-cx, -cy);
-        g.beginPath();
-        for (const p of frame.panes) trace(g, P(p.pts));
-        g.clip();
-        // undo the same sway/roll so the blob lands on the projected sun
-        const dx = world.course.sunX - cx - mTx, dy = world.course.sunY - cy - mTy;
-        const gx = cx + dx * mCos + dy * mSin, gy = cy - dx * mSin + dy * mCos;
+        const gx = world.course.sunX, gy = world.course.sunY;
         const gr = g.createRadialGradient(gx, gy, 0, gx, gy, Math.min(cx, cy) * 0.78);
         gr.addColorStop(0, "rgba(255,214,150,.18)");
         gr.addColorStop(0.5, "rgba(255,192,120,.07)");
         gr.addColorStop(1, "rgba(255,192,120,0)");
         g.fillStyle = gr;
         g.fillRect(0, 0, W, H);
-        g.restore();
       }
+      g.save();
+      g.translate(cx + mTx, cy + mTy);
+      g.rotate(roll);
+      g.drawImage(near, -cx, -cy, W, H);
+      g.restore();
     }
 
     st.run = run; st.world = world; st.deckT = deckT;
@@ -519,30 +571,29 @@ export function createDeck(cam, field) {
       g.strokeStyle = "rgba(120,150,160,.18)";
       g.lineWidth = 1;
       g.beginPath(); g.moveTo(0, sy + 0.5); g.lineTo(W, sy + 0.5); g.stroke();
-      const cw = W / INST.length;
-      for (let k = 0; k < INST.length; k++) {
-        const inst = INST[k];
+      for (const b of BOX) {
         g.save();
-        g.translate(cw * (k + 0.5), sy + sh * 0.55);
+        g.translate(b.x, b.y);
         g.globalAlpha = st.blink;
-        DRAW[inst.id](g, st, Math.min(cw * 0.46, sh * 0.68), sh * 0.4);
+        DRAW[b.inst.id](g, st, b.hw, b.hh);
         g.restore();
       }
     } else {
       g.save();
       g.translate(mTx, mTy);
       g.translate(cx, cy); g.rotate(roll); g.translate(-cx, -cy);
-      for (const inst of INST) {
+      for (const b of BOX) {
         g.save();
-        g.translate(X(inst.x), Y(inst.y));
-        if (inst.rot) g.rotate(inst.rot);
+        g.translate(b.x, b.y);
+        g.rotate(b.rot);
         g.globalAlpha = st.blink;
-        DRAW[inst.id](g, st, UW(inst.r ? inst.r * 2 : inst.w) / 2, UH(inst.r ? inst.r * 2 : inst.h) / 2);
+        DRAW[b.inst.id](g, st, b.hw, b.hh);
         g.restore();
       }
       // frame lamps: small live indicators on the dash, blink on their
-      // own phase like the old particle versions did
-      for (let li = 0; li < frame.lamps.length; li++) {
+      // own phase like the old particle versions did; portrait packs the
+      // panels over their unit spots, so lamps sit out
+      if (W >= H) for (let li = 0; li < frame.lamps.length; li++) {
         const l = frame.lamps[li];
         const on = Math.sin(deckT * (1.4 + (li % 3) * 0.8) + li * 2.6) > -0.1;
         g.globalAlpha = (on ? 0.85 : 0.15) * st.blink;
