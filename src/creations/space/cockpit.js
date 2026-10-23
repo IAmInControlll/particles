@@ -19,53 +19,51 @@ export function createCockpit(field, cam, PF, layer, pad) {
   }
   pts.push([0, 0, 3.2, 2, 0]);
 
-  // holo compass table, 4 floats per point: (a, b, role, w). a runs the
-  // arrow axis (-0.5 tail .. 0.5 tip), b across it, both in arrow lengths;
-  // the arrow is flat and turns about its axis to face the eye, so it
-  // never collapses edge-on. roles: 0 head edge (w = leading-edge weight),
-  // 1 head fill, 2 shaft, 3 projector beam (a = rise phase, b = side).
+  // holo compass: a volumetric arrow on the literal 3D relay direction.
+  // Table, 4 floats per point: (a, r, th, role). a runs the axis (-0.5
+  // tail .. 0.5 tip), r is the radius off it, both in arrow lengths, th
+  // the angle round it. roles: 0 tip, 1 cone ring, 2 cone generator,
+  // 3 shaft rail, 4 fin, 5 projector beam (a = rise phase, r = side).
+  // Rings carry the end-on silhouette, generators and fins the side one.
   // Mobile layers are a third the size: a lighter table keeps the
   // exterior's tail share.
   const small = N < 1000;
-  const nEdge = small ? 44 : 56, nFill = small ? 18 : 34, nShaft = small ? 16 : 24,
-    nBeam = small ? 16 : 30;
-  const ARROW_N = nEdge + nFill + nShaft + nBeam;
-  const al = new Float32Array(ARROW_N * 4);
+  const nRing = small ? 12 : 16, nMid = small ? 6 : 8, nGen = small ? 4 : 6, gPts = small ? 2 : 3,
+    nRail = small ? 5 : 7, nFin = small ? 6 : 8, nBeam = small ? 14 : 24;
+  const tab = [];
   {
-    const HEAD = [[0.5, 0], [0.02, 0.3], [0.14, 0], [0.02, -0.3]]; // tip, barb, notch, barb
-    const segL = HEAD.map((q, k) => {
-      const r = HEAD[(k + 1) % 4];
-      return Math.hypot(r[0] - q[0], r[1] - q[1]);
-    });
-    const per = segL.reduce((x, y) => x + y);
-    let n = 0;
-    const put = (a, b, role, w) => {
-      al[n * 4] = a; al[n * 4 + 1] = b; al[n * 4 + 2] = role; al[n * 4 + 3] = w; n++;
-    };
-    // edge: even arc-length steps round the notched head, so the outline
-    // reads crisp; the two tip->barb runs are the leading edge
-    for (let k = 0; k < nEdge; k++) {
-      let d = (k / nEdge) * per, sg = 0;
-      while (d > segL[sg]) d -= segL[sg++];
-      const q = HEAD[sg], r = HEAD[(sg + 1) % 4], t = d / segL[sg];
-      const lead = sg === 0 ? 1 - t * 0.5 : sg === 3 ? 0.5 + t * 0.5 : 0;
-      put(q[0] + (r[0] - q[0]) * t, q[1] + (r[1] - q[1]) * t, 0, lead);
-    }
-    for (let k = 0; k < nFill; k++) {
-      // inside one of the two tip-barb-notch triangles
-      let u = rnd(), v = rnd();
-      if (u + v > 1) { u = 1 - u; v = 1 - v; }
-      const B = HEAD[k % 2 ? 1 : 3];
-      put(0.5 + (B[0] - 0.5) * u + (0.14 - 0.5) * v, B[1] * u, 1, 0);
-    }
-    const rail = (nShaft - 4) >> 1;
-    for (let k = 0; k < rail * 2; k++) put(-0.5 + ((k >> 1) / (rail - 1)) * 0.62, k & 1 ? 0.045 : -0.045, 2, 0);
-    for (let k = 0; k < nShaft - rail * 2; k++) put(-0.5, -0.045 + (k / 3) * 0.09, 2, 0);
-    for (let k = 0; k < nBeam; k++) put(k / nBeam, ((k * 0.618034) % 1) * 2 - 1, 3, 0);
+    const put = (a, r, th, role) => tab.push(a, r, th, role);
+    const HB = 0.1, HR = 0.17, SR = 0.035; // cone base, cone radius, shaft radius
+    put(0.5, 0, 0, 0);
+    for (let k = 0; k < nRing; k++) put(HB, HR, (k / nRing) * 6.283, 1);
+    for (let k = 0; k < nMid; k++) put(0.3, HR * 0.5, ((k + 0.5) / nMid) * 6.283, 1);
+    for (let k = 0; k < nGen; k++)
+      for (let t = 1; t <= gPts; t++) {
+        const u = t / (gPts + 1);
+        put(0.5 + (HB - 0.5) * u, HR * u, ((k + 0.25) / nGen) * 6.283, 2);
+      }
+    for (let s = 0; s < 3; s++)
+      for (let k = 0; k < nRail; k++) put(-0.5 + (k / (nRail - 1)) * (HB + 0.5), SR, (s / 3) * 6.283 + 1, 3);
+    // 4 swept fins: leading edge root -> outer corner, trailing edge back in
+    const lead = Math.ceil(nFin * 0.6);
+    for (let f = 0; f < 4; f++)
+      for (let k = 0; k < nFin; k++) {
+        const t = k < lead ? k / (lead - 1) : 1 - (k - lead + 1) / (nFin - lead + 1);
+        put(k < lead ? -0.24 - 0.26 * t : -0.5, SR + (0.17 - SR) * t, (f / 4) * 6.283, 4);
+      }
+    for (let k = 0; k < nBeam; k++) put(k / nBeam, ((k * 0.618034) % 1) * 2 - 1, 0, 5);
   }
+  const al = new Float32Array(tab);
+  const ARROW_N = al.length / 4;
   const arrowLo = pts.length;
-  // view-space depth of the dash arrow, its length (wu), forward tilt
-  const HD = 150, HL = 22, TILT = 0.8, TC = Math.cos(TILT), TS = Math.sin(TILT);
+  // HD: view-space depth of the dash arrow, HL: its length (wu). EX: the
+  // exaggerated-perspective eye distance in arrow lengths - true depth
+  // at 150 shrinks a 22wu arrow's far end by only ~7%, too little to read
+  const HD = 150, HL = 22, EX = 1.8, PZ = PF.CFG.perspZ;
+  // reference frame drawn round the arrow on the deck canvas (pad.seg)
+  const MODE = new URLSearchParams(location.search).get("compass") === "ball" ? "ball" : "stalk";
+  // per-role base size, luminance; tail colour = tint * COOL (bluer, dimmer)
+  const RS = [2.3, 1.25, 1.05, 1, 1.2], RL = [0.95, 0.42, 0.34, 0.3, 0.4], COOL = [0.45, 0.6, 0.95];
   for (let i = 0; i < ARROW_N; i++) pts.push([0, 0, 3.2, 5, 0]);
 
   const S = pts.length;
@@ -91,7 +89,92 @@ export function createCockpit(field, cam, PF, layer, pad) {
   const OWN = MOTES * MOTE_PTS + S;
   const cockpit = { pts: S, motes: MOTES * MOTE_PTS, used: OWN };
   // probe handle: the compass slice in field indices, table order
-  cockpit.holo = { lo: layer.lo + MOTES * MOTE_PTS + arrowLo, edge: nEdge, fill: nFill, shaft: nShaft, beam: nBeam };
+  cockpit.holo = { lo: layer.lo + MOTES * MOTE_PTS + arrowLo, arrow: ARROW_N - nBeam, beam: nBeam, tab: al, mode: MODE };
+
+  // arrow roll frame (p, q), screen anchor of its centre, exaggeration
+  let px = 1, py = 0, pz = 0, qx = 0, qy = 1, qz = 0, sOx = 0, sOy = 0, vzO = 0, exL = 1;
+  // P2 = screen x, y and the depth gain pf (>1 nearer than the centre):
+  // offsets from the centre scale by exL / (exL + dz), a closer virtual eye
+  const P2 = [0, 0, 1];
+  const proj = (x, y, z) => {
+    if (!cam.project(x, y, z)) return false;
+    const pf = exL / Math.max(exL * 0.4, exL + cam.K * (1 - cam.out[2] / PZ) - vzO);
+    P2[0] = sOx + (cam.out[0] - sOx) * pf; P2[1] = sOy + (cam.out[1] - sOy) * pf; P2[2] = pf;
+    return true;
+  };
+  // reference frame -> pad.seg (x0, y0, x1, y1, alpha, width) and pad.dot
+  // (x, y, radius, alpha, filled); deck strokes them in the state tint
+  // next frame. The frame is the SHIP's (right/up/fwd), so in chase it
+  // visibly turns with the hull.
+  let lx = 0, ly = 0, lf = 1, lOk = false, fade = false;
+  const vert = (x, y, z, a, w, first) => {
+    const was = lOk, x0 = lx, y0 = ly, f0 = lf;
+    lOk = proj(x, y, z);
+    lx = P2[0]; ly = P2[1]; lf = P2[2];
+    if (first || !was || !lOk || pad.nSeg >= pad.seg.length / 6) return;
+    const s = pad.seg, o = pad.nSeg++ * 6;
+    // back half (farther than the centre) fades: hidden-line depth cue
+    s[o] = x0; s[o + 1] = y0; s[o + 2] = lx; s[o + 3] = ly;
+    s[o + 4] = fade && (f0 + lf) * 0.5 < 1 ? a * 0.35 : a; s[o + 5] = w;
+  };
+  const ring = (cx, cy, cz, A, B, rad, a, w) => {
+    fade = true;
+    for (let k = 0; k <= 40; k++) {
+      const t = (k / 40) * 6.2832, c = Math.cos(t) * rad, s = Math.sin(t) * rad;
+      vert(cx + A[0] * c + B[0] * s, cy + A[1] * c + B[1] * s, cz + A[2] * c + B[2] * s, a, w, k === 0);
+    }
+    fade = false;
+  };
+  const dot = (x, y, z, rad, a, fill) => {
+    if (!proj(x, y, z) || pad.nDot >= pad.dot.length / 5) return;
+    const d = pad.dot, o = pad.nDot++ * 5;
+    d[o] = P2[0]; d[o + 1] = P2[1]; d[o + 2] = rad * P2[2]; d[o + 3] = a; d[o + 4] = fill;
+  };
+  const refFrame = (ox, oy, oz, dx, dy, dz, L) => {
+    const R = cam.right, U = cam.up, F = cam.fwd, rad = L * 0.62;
+    pad.nSeg = pad.nDot = 0;
+    const nose = () => {
+      // small forward chevron on the ring: which way the ship's nose is
+      const fx = ox + F[0] * rad * 1.12, fy = oy + F[1] * rad * 1.12, fz = oz + F[2] * rad * 1.12;
+      for (const sd of [-1, 1]) {
+        vert(ox + F[0] * rad * 0.9 + R[0] * rad * 0.12 * sd, oy + F[1] * rad * 0.9 + R[1] * rad * 0.12 * sd,
+          oz + F[2] * rad * 0.9 + R[2] * rad * 0.12 * sd, 0.5, 1.2, true);
+        vert(fx, fy, fz, 0.5, 1.2, false);
+      }
+    };
+    if (MODE === "ball") {
+      // gimbal sphere: limb, equator (right/fwd), fore-aft meridian (up/fwd);
+      // the axis pierces the shell - solid dot on the near face (relay
+      // behind you), hollow on the far face (relay ahead)
+      ring(ox, oy, oz, R, U, rad, 0.13, 1);
+      ring(ox, oy, oz, R, F, rad, 0.42, 1.3);
+      ring(ox, oy, oz, U, F, rad, 0.26, 1);
+      nose();
+      const k = rad;
+      if (proj(ox + dx * k, oy + dy * k, oz + dz * k)) {
+        const near = P2[2] >= 1;
+        dot(ox + dx * k, oy + dy * k, oz + dz * k, 3.4, near ? 0.95 : 0.6, near ? 1 : 0);
+      }
+      return;
+    }
+    // stalk (Elite scanner): disc in the ship's right/fwd plane, the whole
+    // arrow's shadow on it (through the centre), a stalk from tip to shadow
+    ring(ox, oy, oz, R, F, rad, 0.45, 1.3);
+    ring(ox, oy, oz, R, F, rad * 0.5, 0.16, 1);
+    vert(ox - R[0] * rad, oy - R[1] * rad, oz - R[2] * rad, 0.14, 1, true);
+    vert(ox + R[0] * rad, oy + R[1] * rad, oz + R[2] * rad, 0.14, 1, false);
+    vert(ox - F[0] * rad, oy - F[1] * rad, oz - F[2] * rad, 0.14, 1, true);
+    vert(ox + F[0] * rad, oy + F[1] * rad, oz + F[2] * rad, 0.14, 1, false);
+    nose();
+    const h = L * 0.5, du = dx * U[0] + dy * U[1] + dz * U[2];
+    const tx = ox + dx * h, ty = oy + dy * h, tz = oz + dz * h;
+    const sx = tx - U[0] * du * h, sy = ty - U[1] * du * h, sz = tz - U[2] * du * h;
+    vert(ox - dx * h + U[0] * du * h, oy - dy * h + U[1] * du * h, oz - dz * h + U[2] * du * h, 0.7, 2, true);
+    vert(sx, sy, sz, 0.85, 2, false);
+    vert(tx, ty, tz, 0.75, 1.4, true);
+    vert(sx, sy, sz, 0.75, 1.4, false);
+    dot(sx, sy, sz, 2.8, 0.9, 1);
+  };
 
   cockpit.shed = (n, mag = 60) => {
     for (let k = 0, tries = 0; k < n && tries < n * 8; tries++) {
@@ -128,40 +211,25 @@ export function createCockpit(field, cam, PF, layer, pad) {
     const shx = cam.ox * 0.45 + (Math.random() - 0.5) * run.jitter * 14;
     const shy = cam.oy * 0.45 + (Math.random() - 0.5) * run.jitter * 14;
 
-    // holo compass: the true direction to the next relay, re-expressed in
-    // the view basis with forward pitched up by TILT - read like a dash
-    // instrument seen from above, so "ahead" points up-screen instead of
-    // shrinking to a tail-on dot. Cockpit: anchored over deck's pad at
-    // depth HD via inverse projection; chase: floats ahead of the hull.
+    // holo compass: the arrow lies on the true direction to the next
+    // relay. Cockpit: centred over deck's pad at depth HD via inverse
+    // projection; chase: floats ahead of the hull. The roll frame (p, q)
+    // is parallel-transported frame to frame, so it never flips as the
+    // axis swings through a pole.
     const tg = run.next;
-    const R = chase ? cam.vr : cam.right, U = chase ? cam.vu : cam.up, F = chase ? cam.vf : cam.fwd;
     const onPad = !chase && pad.on;
-    let ax = 0, ay = 0, az = 0, kx = 0, ky = 0, kz = 0, ox = 0, oy = 0, oz = 0;
-    let L = 0, lift = 0, aF = 0, wpx = 0;
+    let dx = 0, dy = 0, dz = 0, ox = 0, oy = 0, oz = 0, L = 0, lift = 0, wpx = 0, ok = false;
     if (tg) {
-      let dx = tg.x - cam.x, dy = tg.y - cam.y, dz = tg.z - cam.z;
+      dx = tg.x - cam.x; dy = tg.y - cam.y; dz = tg.z - cam.z;
       const dl = Math.hypot(dx, dy, dz) || 1;
       dx /= dl; dy /= dl; dz /= dl;
-      const dr = dx * R[0] + dy * R[1] + dz * R[2];
-      const du = dx * U[0] + dy * U[1] + dz * U[2];
-      const df = dx * F[0] + dy * F[1] + dz * F[2];
-      const u2 = du * TC + df * TS, f2 = df * TC - du * TS;
-      ax = R[0] * dr + U[0] * u2 + F[0] * f2;
-      ay = R[1] * dr + U[1] * u2 + F[1] * f2;
-      az = R[2] * dr + U[2] * u2 + F[2] * f2;
-      // width axis = a x F: the flat arrow turns its face to the eye (the
-      // head is symmetric, so the sign flip through the view axis is free)
-      kx = ay * F[2] - az * F[1]; ky = az * F[0] - ax * F[2]; kz = ax * F[1] - ay * F[0];
-      const bl = Math.hypot(kx, ky, kz);
-      if (bl < 1e-3) { kx = R[0]; ky = R[1]; kz = R[2]; }
-      else { kx /= bl; ky /= bl; kz /= bl; }
-      aF = ax * F[0] + ay * F[1] + az * F[2];
       if (onPad) {
         // portrait squeezes the dash: shorter arrow
         L = HL * Math.min(1, (innerWidth / innerHeight) * 1.7);
-        lift = pad.r + innerHeight * 0.075;
+        lift = pad.r + innerHeight * 0.085;
         const sx = pad.x + pad.ux * lift, sy = pad.y + pad.uy * lift;
         const vx = ((sx - cam.cx - cam.ox) * HD) / cam.f, vy = (-(sy - cam.cy - cam.oy) * HD) / cam.f;
+        const R = cam.right, U = cam.up, F = cam.fwd;
         ox = cam.x + R[0] * vx + U[0] * vy + F[0] * HD;
         oy = cam.y + R[1] * vx + U[1] * vy + F[1] * HD;
         oz = cam.z + R[2] * vx + U[2] * vy + F[2] * HD;
@@ -172,8 +240,26 @@ export function createCockpit(field, cam, PF, layer, pad) {
         oy = cam.y + cam.fwd[1] * 170 + cam.up[1] * 22;
         oz = cam.z + cam.fwd[2] * 170 + cam.up[2] * 22;
       }
+      let k = px * dx + py * dy + pz * dz;
+      px -= k * dx; py -= k * dy; pz -= k * dz;
+      let pl = Math.hypot(px, py, pz);
+      if (pl < 0.3) {
+        const B = Math.abs(dx * cam.up[0] + dy * cam.up[1] + dz * cam.up[2]) < 0.9 ? cam.up : cam.right;
+        k = B[0] * dx + B[1] * dy + B[2] * dz;
+        px = B[0] - k * dx; py = B[1] - k * dy; pz = B[2] - k * dz;
+        pl = Math.hypot(px, py, pz);
+      }
+      px /= pl; py /= pl; pz /= pl;
+      qx = dy * pz - dz * py; qy = dz * px - dx * pz; qz = dx * py - dy * px;
+      if (cam.project(ox, oy, oz)) {
+        sOx = cam.out[0]; sOy = cam.out[1]; vzO = cam.K * (1 - cam.out[2] / PZ);
+        exL = EX * L;
+        ok = true;
+      }
     }
-    const hue = pad.tint, depth = onPad ? HD : 320;
+    if (ok) refFrame(ox, oy, oz, dx, dy, dz, L);
+    const hue = pad.tint, rl = holoT * 0.6; // slow roll: fins show 3D form end-on
+    const hot = [hue[0] * 0.8 + 0.25, hue[1] * 0.8 + 0.25, hue[2] * 0.8 + 0.25];
     const scan = ((holoT * 0.75) % 1) * 1.6 - 0.3; // scanline: tail -> tip sweep
 
     for (let i = 0; i < OWN; i++) {
@@ -226,43 +312,44 @@ export function createCockpit(field, cam, PF, layer, pad) {
       homed[p] = 1;
       const bx = body[bi * 5], by = body[bi * 5 + 1], kind = body[bi * 5 + 3];
       if (kind === 5) {
-        const q = (bi - arrowLo) * 4, role = al[q + 2];
-        if (!tg || (role === 3 && !onPad)) {
+        const q = (bi - arrowLo) * 4, a = al[q], r = al[q + 1], role = al[q + 3];
+        if (!ok || (role === 5 && !onPad)) {
           size[p] = 0;
           home[j] = -5e3; home[j + 1] = -5e3; home[j + 2] = 0;
           continue;
         }
-        const a = al[q], b = al[q + 1], w = al[q + 3];
         const fl = (0.88 + 0.12 * Math.random()) * blink;
-        if (role === 3) {
+        if (role === 5) {
           // beam: faint motes rise off the lens and fan out to the arrow
-          const r = (a + holoT * 0.55) % 1;
-          const up = pad.r * 0.5 + r * (lift - pad.r * 0.5);
-          const half = (pad.r * 0.45 + r * (wpx * 0.55 - pad.r * 0.45)) * b;
+          const rr = (a + holoT * 0.55) % 1;
+          const up = pad.r * 0.5 + rr * (lift - pad.r * 0.5);
+          const half = (pad.r * 0.45 + rr * (wpx * 0.55 - pad.r * 0.45)) * r;
           home[j] = pad.x + pad.ux * up - pad.uy * half;
           home[j + 1] = pad.y + pad.uy * up + pad.ux * half;
           home[j + 2] = 3.2;
           size[p] = 0.95;
-          const lum = 0.3 * Math.sin(r * Math.PI) * fl;
+          const lum = 0.3 * Math.sin(rr * Math.PI) * fl;
           hcol[j] = hue[0] * lum; hcol[j + 1] = hue[1] * lum; hcol[j + 2] = hue[2] * lum;
           continue;
         }
-        const la = a * L, lb = b * L;
-        if (!cam.project(ox + ax * la + kx * lb, oy + ay * la + ky * lb, oz + az * la + kz * lb)) {
+        const th = al[q + 2] + rl, c = Math.cos(th) * r * L, s = Math.sin(th) * r * L, la = a * L;
+        if (!proj(ox + dx * la + px * c + qx * s, oy + dy * la + py * c + qy * s, oz + dz * la + pz * c + qz * s)) {
           home[j] = -5e3; home[j + 1] = -5e3; home[j + 2] = 0;
           snap[p] = 1;
           continue;
         }
-        home[j] = cam.out[0]; home[j + 1] = cam.out[1]; home[j + 2] = 3.2;
-        // the nearer end grows a touch, so a tipped arrow reads in depth
-        const near = 1 - ((aF * la) / depth) * 2.5;
-        size[p] = (role === 0 ? 1.3 : role === 1 ? 1 : 1.1) * near;
+        home[j] = P2[0]; home[j + 1] = P2[1]; home[j + 2] = 3.2;
+        // depth cue: the nearer end is bigger and brighter, exaggerated
+        const pf = P2[2];
+        size[p] = RS[role] * pf ** 1.2;
         // modest luminance: stacked additive dots clip to white, so the
         // hue only survives if each point stays well under ~1
-        const sw = Math.exp(-((a + 0.5 - scan) ** 2) * 60);
-        const lum = (role === 0 ? 0.42 + 0.3 * w : role === 1 ? 0.2 : 0.3) * (1 + sw * 1.1) * fl;
-        const wh = role === 0 ? w * 0.22 * fl : 0; // white lift on the leading edge
-        hcol[j] = hue[0] * lum + wh; hcol[j + 1] = hue[1] * lum + wh; hcol[j + 2] = hue[2] * lum + wh;
+        const u = a + 0.5, sw = Math.exp(-((u - scan) ** 2) * 60);
+        const lum = RL[role] * (0.4 + 0.6 * pf) * (1 + sw * 0.9) * fl;
+        for (let e = 0; e < 3; e++) {
+          const cool = hue[e] * COOL[e];
+          hcol[j + e] = (cool + (hot[e] - cool) * u) * lum;
+        }
         continue;
       }
       const rx = bx * cosr - by * sinr, ry = bx * sinr + by * cosr;

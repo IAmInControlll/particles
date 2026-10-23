@@ -32,9 +32,12 @@ export function createDeck(cam, field) {
   // chase). pad = the live contract cockpit.js reads each frame: screen
   // centre after sway/roll/shake, u = the rolled pad-up unit vector,
   // aim = next relay . fwd, tint = state colour (rgb 0..1) shared by the
-  // particle arrow and the deck glow/readout.
+  // particle arrow and the deck glow/readout. seg/dot = the compass
+  // reference frame cockpit.js projects each frame (screen px, see its
+  // refFrame), drawn here once on the next frame, then cleared.
   let PADB = null;
-  const pad = { on: false, lit: false, x: 0, y: 0, r: 0, ux: 0, uy: -1, aim: 0, rng: 0, tint: [0.3, 0.85, 1] };
+  const pad = { on: false, lit: false, x: 0, y: 0, r: 0, ux: 0, uy: -1, aim: 0, rng: 0, tint: [0.3, 0.85, 1],
+    seg: new Float32Array(6 * 160), nSeg: 0, dot: new Float32Array(5 * 4), nDot: 0 };
 
   const GRN = "#8fd8b0", AMB = "#e8b060", BLU = "#7ea8e8", RED = "#e85444",
     DIM = "#3d5a54",
@@ -728,6 +731,28 @@ export function createDeck(cam, field) {
       }
       g.globalAlpha = 1;
       g.restore();
+    }
+
+    if (pad.nSeg || pad.nDot) {
+      const t = pad.tint, c = `${(t[0] * 255) | 0},${(t[1] * 255) | 0},${(t[2] * 255) | 0}`;
+      const sg = pad.seg, dd = pad.dot;
+      g.save();
+      g.globalCompositeOperation = "lighter";
+      g.lineCap = "round";
+      for (let k = 0; k < pad.nSeg; k++) {
+        const o = k * 6;
+        g.strokeStyle = `rgba(${c},${(sg[o + 4] * st.blink).toFixed(3)})`;
+        g.lineWidth = sg[o + 5];
+        g.beginPath(); g.moveTo(sg[o], sg[o + 1]); g.lineTo(sg[o + 2], sg[o + 3]); g.stroke();
+      }
+      for (let k = 0; k < pad.nDot; k++) {
+        const o = k * 5, col = `rgba(${c},${(dd[o + 3] * st.blink).toFixed(3)})`;
+        g.beginPath(); g.arc(dd[o], dd[o + 1], dd[o + 2], 0, TAU);
+        if (dd[o + 4]) { g.fillStyle = col; g.fill(); }
+        else { g.strokeStyle = col; g.lineWidth = 1.4; g.stroke(); }
+      }
+      g.restore();
+      pad.nSeg = pad.nDot = 0;
     }
 
     // pickup tags: world objects, so they get the raw projected position
