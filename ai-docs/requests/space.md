@@ -477,3 +477,36 @@ What changed:
   cluster, 12 ember pts flickering like dying fires (sin hash per pt),
   and a ~70-pt debris cloud co-tumbling with the hull. Beacon blink
   brighter. Planets layer grown 11% -> 13% (stars 23% -> 21%).
+
+## Polish batch: combat, canopy, story, music, world (session 9)
+
+- Wave-clear +200 only when every hostile in the wave dies (rams count);
+  escapees print "N broke off". `run.waveSize/waveKills`.
+- Combat (`aim.js`): lead pip per hostile from the bolt intercept
+  quadratic (`leadAim`), solid when the aim ray is inside the projected
+  hitR; non-lethal hits tick (`au.sfx("tick")`), flash the target box
+  white, show HP pips; reticle X on hit, bigger on kill.
+- Canopy: all frames rebuilt around one open pane (Squadrons X-wing
+  reference). Glass share kestrel 22->68%, dart 19->76%, mule 24->61%
+  (`deck.fill()`, `canopy-fill`). Every member now blocks in the cull
+  mask, so members over glass need no flag. PWR panel rows no longer
+  overprint. Instruments regroup into a grid in portrait.
+- Story (`story.js` data, `comms.js`, `cutscene.js`): cast Mags / Hale /
+  Juno / Orren; the rings are a dormant relay chain carrying the
+  Blackbird's signal, and lit relays draw the Gnaw. Comms box with
+  portrait + waveform on its own `#comms` canvas above GL. Each dock is
+  a `run.phase = "dock"` cutscene (shot list + cue table, Enter/Space
+  skips but keeps the lines); leg 3 ends with the Blackbird detonating.
+  `hud.flash` = COM status only, `hud.pop` = feed only.
+- Music (`music.js`): one lookahead scheduler over a MOODS table
+  (pick/race/fight/dock/finale/over), fed by `au.music(mood, speedK)`.
+- World (`sky.js`, course.js `KINDS`): per-leg colour moods painted on a
+  quarter-res backdrop canvas under GL (`mix-blend-mode: plus-lighter`
+  on the GL canvas so dim sprites don't punch holes), a giant planet per
+  leg, glint stars. Gate kinds ring/drift/spin/boost/rocks unlock by leg;
+  events carry `kind`. `cam.kick` gives the boost-gate surge past the cap.
+- Gotcha: `compass` before `race` leaves the autopilot off-course, so the
+  chained `race` probe scores low in every build (base included).
+- Open: chase-view HUD strip (COM text overflows into radar, particles
+  draw over the strip, INV overlaps the home link); the derelict reads
+  thin in close cutscene shots.
