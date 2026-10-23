@@ -569,9 +569,7 @@ const SCEN = {
     [5000],
     ["probe", "mule", CANOPY],
     ["shot", "canopy-mule"],
-    // tl is the comms-box zone: with the story log text cleared it
-    // should read as pure glass
-    ["eval", "__space.world.log.length = 0"], [200],
+    // tl is the comms-box zone (comms draws on its own canvas): pure glass
     ["probe", "tlNoLog", "__space.deck.fill(2).tl"],
     // glare paints under the near layer: aim so the sun sits behind the
     // left pillar - the bloom must stop at the pillar edge
