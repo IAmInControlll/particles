@@ -1,154 +1,122 @@
 // frames.js - per-ship hull geometry tables, one topology per ship.
-// deck.js paints members as near-black backing plates and punches
-// `panes` as open glass.
-// Units: x -1..1 -> +/-cx, y up -1..1 -> +/-cy. z is member depth
-// (0.9 far glass .. 4.8 nearest steel): mean z < 2.4 draws on the far
-// sway layer; per point it sets perspective size and sway gain.
-// band: e0 = away/hull edge, e1 = glass edge; loop: e0/e1 are closed
-// rings filled even-odd (window rims).
-const S = (x0, y0, x1, y1, w0, w1, z0, z1, blk) =>
-  ({ p0: [x0, y0], p1: [x1, y1], w0, w1, z0, z1, blk });
+// deck.js paints the whole canvas as near-black hull, punches `panes` as
+// open glass, then draws members (struts, bands, pods) on top - members
+// may cross glass (A-pillars do) and the cull mask follows them.
+// Units: x -1..1 -> +/-cx, y up -1..1 -> +/-cy; member widths w0/w1 are
+// half-widths in cy units (true px = w*cy at any aspect). z is member
+// depth (0.9 far .. 4.8 nearest steel): mean z < 2.4 draws on the far
+// sway layer. band: e0 = away/hull edge, e1 = glass edge; loop: e0/e1
+// are closed rings filled even-odd (window rims).
+// Layout rules: the dash band is the pane's bottom edge; pillars leave
+// the screen through the side edges below y 0.5 so the top-left 30% x 22%
+// (comms box) stays glass; `inst` sit on hull below the pane edge.
+// pad: the holo-compass projector {x, y, r} on the coaming lip, left of
+// centre so the arrow above it clears the killfeed under the reticle.
+const S = (x0, y0, x1, y1, w0, w1, z0, z1) => ({ p0: [x0, y0], p1: [x1, y1], w0, w1, z0, z1 });
 const pair = (s) => [s, { ...s, p0: [-s.p0[0], s.p0[1]], p1: [-s.p1[0], s.p1[1]] }];
-const curve = (f, x0, x1, n) => {
-  const p = [];
-  for (let i = 0; i <= n; i++) { const x = x0 + ((x1 - x0) * i) / n; p.push([x, f(x)]); }
-  return p;
-};
-const drop = (pts, dy) => pts.map(([x, y]) => [x, y - dy]);
-// visor top edges shared by the brow band rim
-const vK = [[-1.0, 0.72], [-0.64, 0.66], [-0.44, 0.72], [0, 0.74], [0.44, 0.72], [0.64, 0.66], [1.0, 0.72]];
-const vD = [[-0.52, 0.72], [-0.2, 0.78], [0.2, 0.78], [0.52, 0.72]];
-const vM = [[-1.15, 0.95], [-0.7, 0.80], [0, 0.84], [0.7, 0.80], [1.15, 0.95]];
+const mirror = (pts) => pts.map(([x, y]) => [-x, y]);
+// one open pane over everything above the dash: hood half-width hx at
+// height hy, side consoles falling to sy at the screen edge
+const sky = (hx, hy, sy) => ({ z: 4.4, pts: [
+  [-1.05, sy], [-hx, hy], [hx, hy], [1.05, sy], [1.05, 1.05], [-1.05, 1.05],
+] });
+// coaming lip along the pane's bottom edge, t thick
+const lip = (hx, hy, sy, t) => ({ z: 4.6,
+  e0: [[-1.05, sy - t], [-hx, hy - t], [hx, hy - t], [1.05, sy - t]],
+  e1: [[-1.05, sy], [-hx, hy], [hx, hy], [1.05, sy]] });
+
+const kCon = [[-1.05, -0.69], [-0.52, -0.475], [-0.47, -1.05], [-1.05, -1.05]];
+const dCon = [[-1.05, -0.77], [-0.44, -0.575], [-0.42, -1.05], [-1.05, -1.05]];
+const mCon = [[-1.05, -0.53], [-0.62, -0.385], [-0.58, -1.05], [-1.05, -1.05]];
 
 export const FRAMES = {
-  // standard frame: trapezoid windscreen ahead, connectors ramping back,
-  // visor band, wraparound dash, symmetric pods
+  // strike fighter: two heavy A-pillars from the dash corners out through
+  // the upper sides, no overhead steel, low dash with angled side consoles
   kestrel: {
-    panes: [
-      { z: 4.4, pts: [
-        [-0.92, -0.18], [0.92, -0.18],
-        [0.63, 0.50], [0.45, 0.575], [-0.45, 0.575], [-0.63, 0.50],
-      ] },
-    ],
+    panes: [sky(0.46, -0.40, -0.64)],
     struts: [
-      ...pair(S(0.185, 0.265, 0.55, 0.545, 0.018, 0.045, 0.9, 3.4)),
-      ...pair(S(0.34, -0.02, 0.835, 0.06, 0.016, 0.040, 0.9, 3.2)),
-      ...pair(S(0.30, -0.25, 0.95, -0.185, 0.018, 0.050, 0.9, 3.4)),
-      ...pair(S(0.53, 0.575, 0.955, -0.18, 0.050, 0.100, 4.0, 4.8)),
+      ...pair(S(0.44, -0.44, 1.10, 0.56, 0.030, 0.080, 4.0, 4.8)),
+      ...pair(S(0.50, -0.43, 1.10, 0.47, 0.007, 0.016, 4.0, 4.6)), // inner rail
     ],
-    bands: [
-      { z: 0.9, loop: true,
-        e0: [[-0.36, -0.27], [0.36, -0.27], [0.21, 0.29], [0, 0.32], [-0.21, 0.29]],
-        e1: [[-0.305, -0.235], [0.305, -0.235], [0.175, 0.255], [0, 0.285], [-0.175, 0.255]] },
-      { z: 4.4,
-        e0: vK,
-        e1: [[-0.95, 0.42], [-0.63, 0.50], [-0.45, 0.575], [0, 0.60], [0.45, 0.575], [0.63, 0.50], [0.95, 0.42]] },
-      { z: 4.6,
-        e0: drop(curve((x) => -0.335 - 0.09 * x * x, -1.0, 1.0, 12), 0.075),
-        e1: curve((x) => -0.335 - 0.09 * x * x, -1.0, 1.0, 12) },
-    ],
+    bands: [lip(0.46, -0.40, -0.64, 0.05)],
     pods: [
-      { z: 4.6, pts: [[-1.10, -0.26], [-0.62, -0.38], [-0.68, -0.72], [-1.14, -0.62]] },
-      { z: 4.6, pts: [[1.10, -0.26], [0.62, -0.38], [0.68, -0.72], [1.14, -0.62]] },
+      { z: 4.6, pts: kCon },
+      { z: 4.6, pts: mirror(kCon) },
+      { z: 4.6, pts: [[-0.40, -0.475], [0.40, -0.475], [0.36, -1.05], [-0.36, -1.05]] },
     ],
     lamps: [
-      { x: -0.42, y: -0.44, z: 4.6, c: "amb" },
-      { x: 0.34, y: -0.42, z: 4.6, c: "grn" },
-      { x: 0.68, y: -0.52, z: 4.6, c: "amb" },
+      { x: -0.40, y: -0.80, z: 4.6, c: "amb" },
+      { x: 0.40, y: -0.80, z: 4.6, c: "grn" },
+      { x: -0.62, y: -0.58, z: 4.6, c: "amb" },
     ],
     inst: [
-      { id: "spd", label: "SPD", x: -0.82, y: -0.43, w: 0.20, h: 0.28, rot: 0.09 },
-      { id: "nav", label: "NAV", x: -0.16, y: -0.60, w: 0.30, h: 0.21 },
-      { id: "wrn", label: "WRN", x: 0.20, y: -0.585, w: 0.22, h: 0.16 },
-      { id: "com", label: "COM", x: 0.01, y: -0.845, w: 0.52, h: 0.115 },
-      { id: "rdr", label: "RDR", x: 0.50, y: -0.665, r: 0.125 },
-      { id: "sys", label: "PWR", x: 0.83, y: -0.42, w: 0.20, h: 0.24, rot: -0.09 },
+      { id: "spd", label: "SPD", x: -0.74, y: -0.79, w: 0.22, h: 0.27, rot: -0.12 },
+      { id: "wrn", label: "WRN", x: -0.25, y: -0.60, w: 0.19, h: 0.17 },
+      { id: "nav", label: "NAV", x: 0.02, y: -0.60, w: 0.29, h: 0.19 },
+      { id: "rdr", label: "RDR", x: 0.29, y: -0.61, r: 0.11 },
+      { id: "com", label: "COM", x: 0, y: -0.86, w: 0.50, h: 0.11 },
+      { id: "sys", label: "PWR", x: 0.74, y: -0.79, w: 0.22, h: 0.27, rot: 0.12 },
     ],
+    pad: { x: -0.17, y: -0.425, r: 0.022 },
   },
 
-  // interceptor: one wide hexagonal windscreen with a slim center spine
-  // mullion over the glass (blk - it occludes), steep A-pillars, deep dash
+  // interceptor bubble: slender kinked frame rails far out at the sides,
+  // a hairline nose spine under the reticle, the lowest dash of the three
   dart: {
-    panes: [
-      { z: 4.0, pts: [[-0.66, -0.16], [0.66, -0.16], [0.52, 0.64], [-0.52, 0.64]] },
-    ],
+    panes: [sky(0.40, -0.50, -0.72)],
     struts: [
-      S(0, -0.17, 0, 0.66, 0.022, 0.038, 2.6, 4.8, true),           // spine mullion
-      ...pair(S(0.52, 0.63, 0.68, -0.17, 0.048, 0.070, 3.6, 4.8)),  // steep A-pillar
-      ...pair(S(0.30, 0.42, 0.56, 0.62, 0.012, 0.030, 0.9, 3.0)),
-      ...pair(S(0.36, -0.20, 0.64, -0.16, 0.012, 0.028, 0.9, 3.2)),
+      ...pair(S(0.39, -0.53, 0.70, -0.06, 0.012, 0.022, 3.8, 4.4)),
+      ...pair(S(0.70, -0.06, 1.08, 0.30, 0.022, 0.034, 4.4, 4.8)),
+      S(0, -0.53, 0, -0.30, 0.010, 0.004, 4.0, 3.6),
     ],
-    bands: [
-      { z: 0.9, loop: true,
-        e0: [[-0.70, -0.20], [0.70, -0.20], [0.58, 0.68], [-0.58, 0.68]],
-        e1: [[-0.60, -0.15], [0.60, -0.15], [0.48, 0.59], [-0.48, 0.59]] },
-      { z: 4.4,
-        e0: vD,
-        e1: [[-0.54, 0.62], [-0.2, 0.68], [0.2, 0.68], [0.54, 0.62]] },
-      { z: 4.6,
-        e0: drop(curve((x) => -0.44 - 0.22 * x * x, -0.80, 0.80, 10), 0.08),
-        e1: curve((x) => -0.44 - 0.22 * x * x, -0.80, 0.80, 10) },
-    ],
+    bands: [lip(0.40, -0.50, -0.72, 0.04)],
     pods: [
-      { z: 4.6, pts: [[-0.98, -0.34], [-0.62, -0.44], [-0.66, -0.70], [-1.0, -0.62]] },
-      { z: 4.6, pts: [[0.98, -0.34], [0.62, -0.44], [0.66, -0.70], [1.0, -0.62]] },
+      { z: 4.6, pts: dCon },
+      { z: 4.6, pts: mirror(dCon) },
+      { z: 4.6, pts: [[-0.34, -0.565], [0.34, -0.565], [0.30, -1.05], [-0.30, -1.05]] },
     ],
     lamps: [
-      { x: -0.30, y: -0.50, z: 4.6, c: "red" },
-      { x: 0.28, y: -0.50, z: 4.6, c: "grn" },
+      { x: -0.36, y: -0.80, z: 4.6, c: "red" },
+      { x: 0.36, y: -0.80, z: 4.6, c: "grn" },
     ],
     inst: [
-      { id: "spd", label: "SPD", x: -0.62, y: -0.52, w: 0.18, h: 0.26, rot: 0.06 },
-      { id: "nav", label: "NAV", x: -0.14, y: -0.70, w: 0.26, h: 0.18 },
-      { id: "wrn", label: "WRN", x: 0.14, y: -0.66, w: 0.20, h: 0.15 },
-      { id: "com", label: "COM", x: 0, y: -0.90, w: 0.44, h: 0.10 },
-      { id: "rdr", label: "RDR", x: 0.44, y: -0.76, r: 0.105 },
-      { id: "sys", label: "PWR", x: 0.62, y: -0.50, w: 0.16, h: 0.22, rot: -0.05 },
+      { id: "spd", label: "SPD", x: -0.72, y: -0.85, w: 0.20, h: 0.24, rot: -0.10 },
+      { id: "wrn", label: "WRN", x: -0.22, y: -0.67, w: 0.16, h: 0.15 },
+      { id: "nav", label: "NAV", x: 0.02, y: -0.67, w: 0.24, h: 0.16 },
+      { id: "rdr", label: "RDR", x: 0.25, y: -0.68, r: 0.09 },
+      { id: "com", label: "COM", x: 0, y: -0.89, w: 0.42, h: 0.10 },
+      { id: "sys", label: "PWR", x: 0.72, y: -0.85, w: 0.20, h: 0.24, rot: 0.10 },
     ],
+    pad: { x: -0.17, y: -0.52, r: 0.019 },
   },
 
-  // hauler: panoramic wraparound, thin mullions between front and side
-  // glass, heavy brow slab instead of a visor, blocky asymmetric dash
+  // hauler: chunky pillars, a tall heavy dash, one thin high brace
+  // (stays under the comms zone at x < -0.4)
   mule: {
-    panes: [
-      { z: 3.6, pts: [[-0.72, -0.22], [0.72, -0.22], [0.68, 0.38], [-0.68, 0.38]] },
-      { z: 3.6, pts: [[-0.78, -0.20], [-1.04, -0.12], [-1.06, 0.32], [-0.76, 0.37]] },
-      { z: 3.6, pts: [[0.78, -0.20], [1.04, -0.12], [1.06, 0.32], [0.76, 0.37]] },
-    ],
+    panes: [sky(0.60, -0.30, -0.50)],
     struts: [
-      ...pair(S(0.735, -0.21, 0.71, 0.385, 0.022, 0.030, 3.2, 4.6)), // mullion
-      S(0, 0.45, 0, 0.82, 0.020, 0.024, 4.5, 4.7),                  // brow rib
-      ...pair(S(0.45, 0.43, 0.55, 0.80, 0.016, 0.020, 4.5, 4.7)),   // brow ribs
-      ...pair(S(0.56, 0.28, 0.70, 0.375, 0.014, 0.032, 1.2, 3.4)),
-      ...pair(S(0.58, -0.25, 0.74, -0.21, 0.014, 0.032, 1.2, 3.4)),
+      ...pair(S(0.58, -0.36, 1.12, 0.46, 0.050, 0.110, 4.2, 4.8)),
+      ...pair(S(1.06, 0.45, 0, 0.50, 0.016, 0.012, 4.4, 4.4)),
     ],
-    bands: [
-      { z: 1.2, loop: true,
-        e0: [[-0.60, -0.26], [0.60, -0.26], [0.56, 0.30], [-0.56, 0.30]],
-        e1: [[-0.55, -0.225], [0.55, -0.225], [0.51, 0.26], [-0.51, 0.26]] },
-      { z: 4.6,
-        e0: vM,
-        e1: [[-1.1, 0.40], [-0.72, 0.415], [0, 0.44], [0.72, 0.415], [1.1, 0.40]] },
-      { z: 4.6,
-        e0: drop(curve((x) => -0.32 - 0.03 * x * x, -1.05, 1.05, 12), 0.07),
-        e1: curve((x) => -0.32 - 0.03 * x * x, -1.05, 1.05, 12) },
-    ],
+    bands: [lip(0.60, -0.30, -0.50, 0.06)],
     pods: [
-      { z: 4.6, pts: [[-1.02, -0.36], [-0.72, -0.42], [-0.74, -0.64], [-1.06, -0.60]] },
-      { z: 4.6, pts: [[0.50, -0.36], [1.12, -0.28], [1.16, -0.72], [0.56, -0.78]] },
+      { z: 4.6, pts: mCon },
+      { z: 4.6, pts: [[1.05, -0.50], [0.58, -0.37], [0.54, -1.05], [1.05, -1.05]] },
+      { z: 4.6, pts: [[-0.54, -0.39], [0.50, -0.39], [0.46, -1.05], [-0.50, -1.05]] },
     ],
     lamps: [
-      { x: -0.45, y: -0.40, z: 4.6, c: "amb" },
-      { x: 0.30, y: -0.40, z: 4.6, c: "amb" },
-      { x: 0.92, y: -0.56, z: 4.6, c: "grn" },
+      { x: -0.46, y: -0.95, z: 4.6, c: "amb" },
+      { x: 0.42, y: -0.95, z: 4.6, c: "amb" },
+      { x: 0.92, y: -0.62, z: 4.6, c: "grn" },
     ],
     inst: [
-      { id: "spd", label: "SPD", x: -0.88, y: -0.46, w: 0.16, h: 0.24, rot: 0.08 },
-      { id: "nav", label: "NAV", x: -0.30, y: -0.60, w: 0.28, h: 0.20 },
-      { id: "wrn", label: "WRN", x: 0.06, y: -0.56, w: 0.20, h: 0.15 },
-      { id: "com", label: "COM", x: -0.08, y: -0.87, w: 0.50, h: 0.11 },
-      { id: "rdr", label: "RDR", x: 0.62, y: -0.60, r: 0.125 },
-      { id: "sys", label: "PWR", x: 0.90, y: -0.45, w: 0.16, h: 0.24, rot: -0.10 },
+      { id: "spd", label: "SPD", x: -0.80, y: -0.73, w: 0.21, h: 0.27, rot: -0.08 },
+      { id: "nav", label: "NAV", x: -0.20, y: -0.52, w: 0.30, h: 0.20 },
+      { id: "wrn", label: "WRN", x: 0.13, y: -0.52, w: 0.22, h: 0.18 },
+      { id: "rdr", label: "RDR", x: 0.39, y: -0.54, r: 0.12 },
+      { id: "com", label: "COM", x: -0.02, y: -0.80, w: 0.56, h: 0.12 },
+      { id: "sys", label: "PWR", x: 0.80, y: -0.73, w: 0.22, h: 0.26, rot: 0.08 },
     ],
+    pad: { x: -0.17, y: -0.33, r: 0.026 },
   },
 };

@@ -477,3 +477,77 @@ What changed:
   cluster, 12 ember pts flickering like dying fires (sin hash per pt),
   and a ~70-pt debris cloud co-tumbling with the hull. Beacon blink
   brighter. Planets layer grown 11% -> 13% (stars 23% -> 21%).
+
+## Polish batch: combat, canopy, story, music, world (session 9)
+
+- Wave-clear +200 only when every hostile in the wave dies (rams count);
+  escapees print "N broke off". `run.waveSize/waveKills`.
+- Combat (`aim.js`): lead pip per hostile from the bolt intercept
+  quadratic (`leadAim`), solid when the aim ray is inside the projected
+  hitR; non-lethal hits tick (`au.sfx("tick")`), flash the target box
+  white, show HP pips; reticle X on hit, bigger on kill.
+- Canopy: all frames rebuilt around one open pane (Squadrons X-wing
+  reference). Glass share kestrel 22->68%, dart 19->76%, mule 24->61%
+  (`deck.fill()`, `canopy-fill`). Every member now blocks in the cull
+  mask, so members over glass need no flag. PWR panel rows no longer
+  overprint. Instruments regroup into a grid in portrait.
+- Story (`story.js` data, `comms.js`, `cutscene.js`): cast Mags / Hale /
+  Juno / Orren; the rings are a dormant relay chain carrying the
+  Blackbird's signal, and lit relays draw the Gnaw. Comms box with
+  portrait + waveform on its own `#comms` canvas above GL. Each dock is
+  a `run.phase = "dock"` cutscene (shot list + cue table, Enter/Space
+  skips but keeps the lines); leg 3 ends with the Blackbird detonating.
+  `hud.flash` = COM status only, `hud.pop` = feed only.
+- Music (`music.js`): one lookahead scheduler over a MOODS table
+  (pick/race/fight/dock/finale/over), fed by `au.music(mood, speedK)`.
+- World (`sky.js`, course.js `KINDS`): per-leg colour moods painted on a
+  quarter-res backdrop canvas under GL (`mix-blend-mode: plus-lighter`
+  on the GL canvas so dim sprites don't punch holes), a giant planet per
+  leg, glint stars. Gate kinds ring/drift/spin/boost/rocks unlock by leg;
+  events carry `kind`. `cam.kick` gives the boost-gate surge past the cap.
+- Gotcha: `compass` before `race` leaves the autopilot off-course, so the
+  chained `race` probe scores low in every build (base included).
+- Open: chase-view HUD strip (COM text overflows into radar, particles
+  draw over the strip, INV overlaps the home link); the derelict reads
+  thin in close cutscene shots.
+
+## Holo compass on the dash (session 10)
+
+- The relay compass left open glass for a projector pad on each dash
+  (`frames.js` `pad: {x, y, r}`, on the coaming lip at x -0.17, left of
+  centre so the arrow clears the killfeed). deck.js paints the collar and
+  lens, draws the live glow plus a `RLY 1.2k` range readout, and exposes
+  `deck.pad` = {on, lit, x, y, r, ux, uy, aim, rng, tint}: screen centre
+  after sway/roll/shake, the rolled pad-up vector, and the state tint
+  (cyan, green when lined up, amber/red pulse when behind). index.js now
+  runs `deck.frame` before `cockpit.frame` so the pad is current.
+- cockpit.js inverse-projects a point above the pad to view depth 150
+  and builds the arrow there in 3D. The relay direction is re-expressed
+  in the view basis with forward pitched up 0.8 rad, so "ahead" points
+  up-screen instead of collapsing tail-on; the flat arrow turns about its
+  axis to face the eye. Table roles: head edge (leading-edge weight),
+  head fill, shaft rails, projector beam motes. Scanline sweeps tail to
+  tip; per-point flicker. Chase keeps the floating arrow (new look, no
+  beam); dock parks it with the rest of the cockpit layer.
+- Budget: desktop layer 1500 = motes 180 + reticle 13 + arrow 114 + beam
+  30, exterior 1163. Mobile layer 500 = motes 120 (20-pt motes over the
+  same arc) + 13 + arrow 78 + beam 16, exterior 273 (was 267).
+- check.mjs `holo-dash` / `holo-portrait` / `holo-chase`; new
+  `["viewport", w, h]` step.
+
+## Stars at infinity, carrier, chase strip, 3D compass (session 11)
+
+- Far stars (75% of the stars layer) are baked directions on a celestial
+  sphere, projected by direction only - zero drift flying straight; the
+  rest are mood-tinted near dust in the old tunnel. Band plane lives in
+  sky.js (`sky.band`). Layer shares: ent 19%, planets 17%, stars 24%.
+- Carrier ~938 pts with role table (plates, edges, windows, bays, lights),
+  back-face culled, distance-scaled sprites; pods launch from `lm.bay`.
+  Still slightly translucent against bright nebula up close (no sky mask).
+- Chase strip: COM text fits its cell, deck.cull parks world homes in the
+  strip band, 28px gutter clears #hub.
+- Compass: literal 3D arrow (no tilt) - cone head, shaft, fins, depth-scaled
+  size, hot tip / cool tail. Reference frame on the deck canvas via
+  `deck.pad.seg/dot`: `?compass=stalk` (default, Elite-style shadow +
+  stalk on the ship's level plane) or `?compass=ball` (gimbal sphere).
+  Stalk disc reads weakly in chase view (camera nearly level).

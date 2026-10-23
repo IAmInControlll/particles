@@ -22,10 +22,12 @@ export function createCamera(PF) {
     diff: 1, // difficulty speed multiplier, set by the run
     thrustK: 1, capK: 1, turnK: 1, // ship stats, set at pick
     chase: false, // third-person: render eye rides behind+above the hull
-    levelT: 0, // seconds since last roll input - drives auto-straighten
     vr: [1, 0, 0], vu: [0, 1, 0], vf: [0, 0, -1], // chase view basis (lags)
-    visor: 0, // cockpit counter-roll shown by deck/reticle (self-levels)
+    surgeT: 0, // boost-gate surge: seconds the boost cap stays lifted
   };
+  // boost gate: scale velocity and hold the boost cap open briefly so the
+  // kick survives the speed clamp
+  cam.kick = (t, k) => { cam.surgeT = t; cam.vx *= k; cam.vy *= k; cam.vz *= k; };
 
   const TURN = 1.55, ROLL = 2.3, ACCEL = 320, STRAFE = 250, VERT = 250;
   const CAP = 640, BCAP = 1450, DRAG = 0.42;
@@ -64,19 +66,10 @@ export function createCamera(PF) {
     // hands off the roll keys: bank assist only engages near level -
     // past ~40deg the attitude sticks (true free roll, mod 2pi so a
     // full spin back to level still counts as level)
-    cam.levelT = rIn ? 0 : cam.levelT + dt;
     const rmod = ((cam.roll % 6.2832) + 6.2832) % 6.2832;
     const rErr = rmod > 3.1416 ? rmod - 6.2832 : rmod;
     if (!rIn && Math.abs(rErr) < 0.75)
       cam.roll += (-cam.yv / TURNK * 0.5 - rErr) * Math.min(1, dt * 3);
-
-    // visor counter-roll: the canopy interior tilts to sell the bank,
-    // then self-levels a couple seconds after roll input stops - the
-    // SHIP stays at whatever attitude you left it; only the cockpit
-    // visual (deck + reticle) returns upright
-    const vTgt = Math.max(-0.36, Math.min(0.36, -cam.roll)) * 0.4;
-    const vFade = cam.levelT > 2 ? Math.max(0, 1 - (cam.levelT - 2) * 0.8) : 1;
-    cam.visor += (vTgt * vFade - cam.visor) * Math.min(1, dt * 6);
 
     const cy = Math.cos(cam.yaw), sy = Math.sin(cam.yaw);
     const cp = Math.cos(cam.pitch), sp = Math.sin(cam.pitch);
@@ -128,7 +121,8 @@ export function createCamera(PF) {
     const d = Math.exp(-drag * dt);
     cam.vx *= d; cam.vy *= d; cam.vz *= d;
     const sp2 = cam.vx * cam.vx + cam.vy * cam.vy + cam.vz * cam.vz;
-    const cap = (cam.boosting ? BCAP : CAP) * cam.diff * cam.capK;
+    cam.surgeT = Math.max(0, cam.surgeT - dt);
+    const cap = (cam.boosting || cam.surgeT > 0 ? BCAP : CAP) * cam.diff * cam.capK;
     if (sp2 > cap * cap) {
       const s = cap / Math.sqrt(sp2);
       cam.vx *= s; cam.vy *= s; cam.vz *= s;
@@ -140,7 +134,7 @@ export function createCamera(PF) {
     cam.z += cam.vz * dt;
 
     // boost + raw speed widen the lens: near field sweeps outward faster
-    const kick = cam.boosting ? 1 : cam.speedK * 0.55;
+    const kick = cam.boosting || cam.surgeT > 0 ? 1 : cam.speedK * 0.55;
     cam.fovK += (kick - cam.fovK) * Math.min(1, dt * 4);
     cam.f = cam.fBase * (1 - cam.fovK * 0.18);
 
@@ -158,12 +152,16 @@ export function createCamera(PF) {
   const EYE_B = 150, EYE_U = 42, EYE_TILT = -0.08;
   const eCt = Math.cos(EYE_TILT), eSt = Math.sin(EYE_TILT);
   const out = cam.out = [0, 0, 0];
+  // cam.eye: cutscene override {x, y, z, R, U, F} - a free render eye and
+  // basis; the ship (cam.x/y/z) keeps flying underneath it
+  cam.eye = null;
   cam.project = (wx, wy, wz) => {
-    let dx = wx - cam.x, dy = wy - cam.y, dz = wz - cam.z;
-    const R = cam.chase ? cam.vr : cam.right;
-    const U = cam.chase ? cam.vu : cam.up;
-    const F = cam.chase ? cam.vf : cam.fwd;
-    if (cam.chase) {
+    const E = cam.eye, chase = cam.chase && !E;
+    let dx = wx - (E ? E.x : cam.x), dy = wy - (E ? E.y : cam.y), dz = wz - (E ? E.z : cam.z);
+    const R = E ? E.R : chase ? cam.vr : cam.right;
+    const U = E ? E.U : chase ? cam.vu : cam.up;
+    const F = E ? E.F : chase ? cam.vf : cam.fwd;
+    if (chase) {
       dx += F[0] * EYE_B - U[0] * EYE_U;
       dy += F[1] * EYE_B - U[1] * EYE_U;
       dz += F[2] * EYE_B - U[2] * EYE_U;
@@ -171,7 +169,7 @@ export function createCamera(PF) {
     const vx = R[0] * dx + R[1] * dy + R[2] * dz;
     let vy = U[0] * dx + U[1] * dy + U[2] * dz;
     let vz = F[0] * dx + F[1] * dy + F[2] * dz;
-    if (cam.chase) {
+    if (chase) {
       const ty = vy * eCt - vz * eSt;
       vz = vy * eSt + vz * eCt;
       vy = ty;

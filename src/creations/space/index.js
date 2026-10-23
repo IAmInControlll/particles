@@ -10,6 +10,9 @@ import { createEntities } from "./entities.js";
 import { createExterior } from "./exterior.js";
 import { createAudio } from "./audio.js";
 import { SHIPS } from "./ships.js";
+import { createComms } from "./comms.js";
+import { createCutscene } from "./cutscene.js";
+import { CAST, LEGS, SOULS, ORREN_DOWN, ENDLESS, OVERSHOOT, WAVES } from "./story.js";
 
 export function createSpace(field, PF, mods = {}) {
   const N = field.N;
@@ -19,10 +22,10 @@ export function createSpace(field, PF, mods = {}) {
   const cut = (f) => (N * f) | 0;
   const layers = {
     cockpit: { lo: 0, hi: cut(0.10) },
-    ent: { lo: cut(0.10), hi: cut(0.36) },
-    course: { lo: cut(0.36), hi: cut(0.55) },
-    planets: { lo: cut(0.55), hi: cut(0.68) }, // sun + derelict + planets
-    stars: { lo: cut(0.68), hi: cut(0.89) },
+    ent: { lo: cut(0.10), hi: cut(0.29) }, // 5 ships + 8 picks still leave ~80 bolts
+    course: { lo: cut(0.29), hi: cut(0.48) },
+    planets: { lo: cut(0.48), hi: cut(0.65) }, // sun + carrier + planets + giant
+    stars: { lo: cut(0.65), hi: cut(0.89) }, // far sphere is ~10% on screen: needs count
     fx: { lo: cut(0.89), hi: N },
   };
   // world layers sit under the hull backing - cull keeps them in the panes
@@ -35,6 +38,8 @@ export function createSpace(field, PF, mods = {}) {
   const fx = createFx(field, cam, PF, layers.fx);
   const mkCockpit = mods.createCockpit || createCockpit;
   const hud = createHud();
+  const comms = createComms(CAST, () => au.sfx("comms"));
+  const cine = createCutscene(cam, field, fx, course, PF);
   let ent; // created after run exists
 
   // ship pick: hull sets flight stats, hull size, and canopy shape.
@@ -67,13 +72,13 @@ export function createSpace(field, PF, mods = {}) {
     cam.thrustK = ship.thrust; cam.capK = ship.cap; cam.turnK = ship.turn;
     run.hullMax = ship.hullMax;
     run.hull = ship.hullMax;
-    cockpit = mkCockpit(field, cam, PF, layers.cockpit);
+    cockpit = mkCockpit(field, cam, PF, layers.cockpit, deck.pad);
     if (exterior) exterior.setShip(ship.name);
     deck.paint(ship);
   };
 
   const run = {
-    phase: PF.params.get("ship") ? "race" : "pick", // pick | race | fight | over
+    phase: PF.params.get("ship") ? "race" : "pick", // pick | race | fight | dock | over
     score: 0,
     best: +localStorage.getItem("space.best") || 0,
     lives: 5,
@@ -90,6 +95,7 @@ export function createSpace(field, PF, mods = {}) {
     waveSize: 0,  // hostiles fielded this wave
     waveKills: 0, // of those, destroyed (rams count) - escapees forfeit the bonus
     legs: 0,       // rescue legs completed
+    souls: 0,      // crew pulled off the Blackbird
     wreckDist: 0, // live distance to the derelict (0 = no live objective)
     storyDone: false, // campaign finished - the run goes endless
     next: null, // pending gate the cockpit compass points at
@@ -161,32 +167,39 @@ export function createSpace(field, PF, mods = {}) {
     for (const kind of roster) ent.spawnShip(kind);
     run.waveSize = ent.countAlive(); run.waveKills = 0;
     hud.flash(n > 1 ? `${n} hostiles inbound` : "hostile inbound", 1.6);
+    // flavour on the radio, only into a quiet channel
+    if (!comms.busy() && PF.rnd() < 0.6) {
+      const pool = WAVES[run.storyDone ? 3 : run.legs];
+      comms.say([pool[(PF.rnd() * pool.length) | 0]]);
+    }
   }
 
   ent = createEntities(field, cam, PF, layers.ent, {
-    fx,
+    fx, au,
     hit,
     onKill: (s) => {
       run.score += s.score;
       run.kills++;
       run.waveKills++;
       au.sfx("kill");
-      hud.flash(`${s.kind} +${s.score}`, 1, "#e85444");
+      hud.pop(`${s.kind} +${s.score}`, "#e85444");
+      if (s === orren) { orren = null; comms.say(ORREN_DOWN, true); }
     },
     onIntercept: () => {
       run.score += 15;
       au.sfx("hit");
-      hud.flash("intercepted +15", 0.9, "#e8a044");
+      hud.pop("intercepted +15", "#e8a044");
     },
     onPickup: (kind) => {
       run.score += 10;
       au.sfx("pick");
-      if (kind === "boost") { cam.boost = 1; hud.flash("BST +10 - boost refilled", 1.2, "#ffd159"); }
-      else if (kind === "health") { run.hull = Math.min(run.hullMax, run.hull + 1); hud.flash("HUL +10 - hull patched", 1.2, "#66f2b2"); }
-      else { run.shield = Math.min(6, run.shield + 2); hud.flash("SHD +10 - shield motes +2", 1.2, "#598cf2"); }
+      if (kind === "boost") { cam.boost = 1; hud.pop("BST +10 - boost refilled", "#ffd159"); }
+      else if (kind === "health") { run.hull = Math.min(run.hullMax, run.hull + 1); hud.pop("HUL +10 - hull patched", "#66f2b2"); }
+      else { run.shield = Math.min(6, run.shield + 2); hud.pop("SHD +10 - shield motes +2", "#598cf2"); }
     },
   });
-  const world = { ent, course, feed: hud.feed, log: hud.log }; // feed: killfeed, log: story lines
+  const world = { ent, course, feed: hud.feed }; // feed: score popups under the reticle
+  course.onIntro = (text) => hud.flash(text, 2.6); // first sighting of each gate kind
 
   // snap tracking: teleports rigid layers every frame (crisp, no spring lag).
   // spring mode lets homing smooth camera motion. T toggles, persisted.
@@ -255,6 +268,7 @@ export function createSpace(field, PF, mods = {}) {
     if (dig >= 0 && run.phase === "pick") repick(dig); // preview the hull live
     else if (dig >= 0 && run.phase === "over") { pickShip(dig); hud.flash(`${ship.name} - R to launch`, 1.4); }
     if ((e.code === "Enter" || e.code === "Space") && run.phase === "pick") launch();
+    if ((e.code === "Enter" || e.code === "Space") && run.phase === "dock" && !e.repeat) cine.skip();
     if (e.code === "KeyR" && run.phase === "over") restart();
   });
   addEventListener("keyup", (e) => (keys[e.code] = false));
@@ -268,8 +282,9 @@ export function createSpace(field, PF, mods = {}) {
     run.dist = 0; run.hostiles = 0; run.gatesPassed = 0; run.wave = 0;
     run.kills = 0; run.invuln = 0; run.jitter = 0;
     run.waveSize = 0; run.waveKills = 0;
-    run.legs = 0; run.wreckDist = 0; run.storyDone = false;
-    legSeq = -1; beats = 0; hud.log.length = 0;
+    run.legs = 0; run.souls = 0; run.wreckDist = 0; run.storyDone = false;
+    legOpen = -1; legSeq = -1; beats = 0; ambushed = false; orren = null;
+    comms.clear(); cine.resetBoom();
     cam.x = cam.y = cam.z = 0;
     cam.vx = cam.vy = cam.vz = 0;
     cam.yaw = cam.pitch = cam.roll = 0;
@@ -281,71 +296,144 @@ export function createSpace(field, PF, mods = {}) {
     hud.flash("run it back", 1.4);
   }
 
-  // the campaign: three rescue legs aboard the wrecked carrier Blackbird.
-  // beats[i][0] is a fraction of the leg's spawn distance - comms chatter
-  // lands in the story log as you close, leg.done fires on a good dock
-  const LEGS = [
-    {
-      open: "DISTRESS >> BLACKBIRD - reactor dead, 40 souls aboard",
-      beats: [
-        [0.8, "BLACKBIRD >> 'batteries at 40% - lights going dim'"],
-        [0.6, "scopes: scavenger flares hanging off her flanks", "#e85444"],
-        [0.4, "BLACKBIRD >> 'pods are hot - just get here'"],
-        [0.18, "she is tumbling slow - still no reactor light"],
-        [0.045, "BLACKBIRD >> 'we see your lights - airlock three'"],
-        [0.014, "final approach - hold her steady"],
-      ],
-      done: "squad A aboard - 14 souls safe",
-    },
-    {
-      open: "second fix locked - aft section pods, 18 more out there",
-      beats: [
-        [0.78, "BLACKBIRD >> 'aft pods report boarders - hurry'"],
-        [0.56, "scopes: more hostiles feeding on the hull", "#e85444"],
-        [0.34, "BLACKBIRD >> 'they are cutting through deck seven'"],
-        [0.14, "close now - they will try to break you off"],
-        [0.025, "aft airlock marked - bring her in"],
-      ],
-      done: "squad B aboard - 18 souls safe",
-    },
-    {
-      open: "LAST CALL - reactor going critical, bridge crew aboard",
-      beats: [
-        [0.78, "BLACKBIRD >> 'containment failing - come now'"],
-        [0.52, "reactor bloom on scopes - she will not hold", "#e85444"],
-        [0.3, "BLACKBIRD >> 'bridge crew to the pods - GO'"],
-        [0.12, "everything you have left - burn it"],
-        [0.022, "dock hard - no time for gentle"],
-      ],
-      done: "all hands recovered - BLACKBIRD salutes you",
-    },
-  ];
-  let fireT = 0, prevAuto = false, legSeq = -1, beats = 0;
+  // campaign driver over story.js. Beats fire once per leg as the wreck
+  // range closes (fractions of the leg's spawn distance); the radio queue
+  // keeps them from talking over each other. Inside DOCK_R the run hands
+  // off to a cutscene (phase "dock"); docked() hands it back.
+  const DOCK_R = 700;
+  // the rings are a dormant relay chain; damaged kinds read in the pop
+  const RELAY = { drift: "drifting relay", spin: "faulty relay", boost: "overcharged relay" };
+  let legOpen = -1, legSeq = -1, beats = 0, ambushed = false, orren = null, patched = false;
 
-  const game = { field, cam, run, keys, course, ent, hit, deck, ext: exterior, auto: false, au, world, fx };
+  function story() {
+    const lm = course.landmark;
+    const dl = Math.hypot(lm.x - cam.x, lm.y - cam.y, lm.z - cam.z);
+    run.wreckDist = run.storyDone ? 0 : dl;
+    if (run.storyDone) return;
+    const leg = LEGS[run.legs];
+    if (legOpen !== run.legs) {
+      legOpen = run.legs; beats = 0; ambushed = false;
+      comms.say(leg.open);
+    } else if (lm.seq !== legSeq) comms.say(OVERSHOOT);
+    legSeq = lm.seq;
+    const ll = lm.legLen || dl;
+    leg.beats.forEach((b, i) => {
+      if (!(beats & (1 << i)) && dl < b.at * ll) { beats |= 1 << i; comms.say(b.say); }
+    });
+    if (leg.ambush && !ambushed && dl < leg.ambush.dist) {
+      ambushed = true;
+      for (const k of leg.ambush.roster) ent.spawnShip(k);
+      orren = ent.ships.find((s) => s.alive && s.kind === "heavy" && s.age === 0) || null;
+      run.waveSize = ent.countAlive(); run.waveKills = 0;
+      run.phase = "fight";
+      au.sfx("wave");
+      hud.flash("hostiles on the wreck", 2);
+      comms.say(leg.ambush.say, true);
+    }
+    if (dl < DOCK_R) dock(leg);
+  }
+
+  function dock(leg) {
+    run.phase = "dock";
+    run.wreckDist = 0;
+    run.legs++;
+    run.souls += leg.souls;
+    run.score += 800; // paid on the clamp so the finale's end card counts it
+    patched = run.hull < run.hullMax;
+    if (patched) run.hull++;
+    course.landmark.done = true; // hold the carrier still while the camera films it
+    au.sfx("gate");
+    hud.flash("docking clamps engaged", 2);
+    deck.setView("chase"); // the external eye needs the no-hull render path
+    hud.cine(true);
+    cine.play({ ...leg.dock, caption: `LEG ${run.legs} // ${leg.title} // ${leg.souls} SOULS ABOARD` }, cue, docked);
+  }
+
+  const ACT = {
+    pods: () => fx.escort(course.landmark.bay, 14),
+    // the reactor takes Orren's pack with the ship
+    boom: () => {
+      cine.boom();
+      for (const s of ent.ships) if (s.alive) {
+        fx.burst(s.x, s.y, s.z, PF.PAL.hot, 50, 120);
+        run.score += s.score; run.kills++;
+      }
+      ent.reset();
+      orren = null;
+    },
+    card: () => hud.campaignDone(run, SOULS),
+  };
+  // skipping fires every remaining cue at once, so lines queue, never cut
+  const cue = (c, skipping) => {
+    if (c.say) comms.say(c.say, c.now && !skipping);
+    if (c.act) ACT[c.act]();
+  };
+
+  function docked() {
+    deck.setView(view);
+    hud.cine(false);
+    run.invuln = Math.max(run.invuln, 1.5);
+    hud.pop(`souls aboard +800${patched ? " - hull patched" : ""}`, "#66f2b2");
+    if (run.legs >= LEGS.length) {
+      run.storyDone = true;
+      comms.say(ENDLESS);
+      hud.flash("endless run", 2);
+    } else {
+      course.landmark.done = false;
+      course.respawnLm(run.legs);
+    }
+    run.phase = ent.countAlive() ? "fight" : "race";
+  }
+
+  const ckLo = layers.cockpit.lo;
+  function dockFrame(dt) {
+    cine.frame(dt);
+    run.invuln = Math.max(run.invuln, 1.5);
+    run.jitter = Math.max(0, run.jitter - dt * 2.2);
+    course.frame(dt, snapTrack);
+    cine.wreck(dt);
+    ent.frame(dt, snapTrack, false);
+    fx.frame(dt, snapTrack);
+    // cockpit reticle/arrow/motes are screen furniture: park them off-shot
+    const home = field.home, snap = field.snap;
+    for (let p = ckLo; p < ckLo + cockpit.used; p++) {
+      home[p * 3] = -5e3; home[p * 3 + 1] = -5e3; snap[p] = 1;
+    }
+    exterior.frame(dt, run.phase === "dock" || view === "chase", snapTrack);
+    deck.frame(dt, run, world);
+    hud.frame(dt);
+    comms.frame(dt, cine.draw);
+  }
+
+  let fireT = 0, prevAuto = false;
+
+  const game = { field, layers, cam, run, keys, course, ent, hit, deck, ext: exterior, auto: false, au, world, fx, hud, comms, cine };
   Object.defineProperty(game, "ship", { get: () => ship.name });
   Object.defineProperty(game, "cockpit", { get: () => cockpit });
   Object.defineProperty(game, "view", { get: () => view });
   game.frame = (T, dt) => {
     const chase = view === "chase";
     au.engine(cam.speedK, cam.boosting);
+    au.music(run.phase === "race" && run.legs === 2 && !run.storyDone ? "finale" : run.phase, cam.speedK);
     if (run.phase === "over" || run.phase === "pick") {
       course.frame(dt, snapTrack);
       fx.frame(dt, snapTrack);
+      deck.frame(dt, run, world); // first: cockpit reads this frame's deck.pad
       cockpit.frame(dt, run, world, chase);
       exterior.frame(dt, chase, snapTrack);
-      deck.frame(dt, run, world);
       deck.cull(WORLD);
       hud.frame(dt, run, cam);
+      comms.frame(dt, cine.draw);
       return;
     }
+    if (run.phase === "dock") return dockFrame(dt);
     const prevZ = cam.z;
     if (game.auto) {
       keys.KeyW = true;
       // aim at the nearest pending gate ahead; fall back to the corridor
       let tx = course.trackX(cam.z - 700), ty = course.trackY(cam.z - 700), tz = cam.z - 700;
       for (const g of course.gates)
-        if (g.state === 0 && g.z < cam.z - 30 && g.z > tz) { tz = g.z; tx = g.x; ty = g.y; }
+        if (g.state === 0 && g.z < cam.z - 30 && g.z > tz) { tz = g.z; tx = g.ax; ty = g.ay; }
       const pull = Math.min(1, dt * (cam.z - tz < 400 ? 5 : 1.6));
       cam.x += (tx - cam.x) * pull;
       cam.y += (ty - cam.y) * pull;
@@ -357,78 +445,8 @@ export function createSpace(field, PF, mods = {}) {
     run.jitter = Math.max(0, run.jitter - dt * 2.2);
     cam.diff = 1 + Math.min(0.7, run.dist / 16000);
 
-    // rescue campaign: three long legs to the Blackbird. Beats are
-    // fractions of that leg's spawn distance so they space out over the
-    // haul; the story log (top-left) keeps the chatter. After the last
-    // dock the wreck is left drifting and the run goes endless for score.
-    {
-      const lm = course.landmark;
-      const dl = Math.hypot(lm.x - cam.x, lm.y - cam.y, lm.z - cam.z);
-      run.wreckDist = run.storyDone ? 0 : dl;
-      if (!run.storyDone) {
-        const leg = LEGS[Math.min(run.legs, LEGS.length - 1)];
-        if (lm.seq !== legSeq) {
-          const first = legSeq < 0, rescued = (beats & 8) !== 0;
-          legSeq = lm.seq; beats = 0;
-          hud.flash(
-            first ? "distress ping - carrier blackbird, crew aboard"
-              : rescued ? "new distress signal picked up"
-              : "rendezvous missed - signal re-arms ahead", 2.4, "#e8b060");
-          hud.story(rescued || first ? leg.open : "signal lost - relay reacquired the fix");
-        }
-        if (dl < 9000 && !(beats & 1)) {
-          beats |= 1;
-          hud.flash(run.legs === 0 ? "blackbird: 'lifesigns weak - step on it'"
-            : "beacon live - closing on the wreck", 2.4);
-        }
-        if (dl < 4000 && !(beats & 2)) {
-          beats |= 2;
-          hud.flash("wreck on scope - dock within 700wu", 2.4);
-        }
-        const ll = lm.legLen || dl;
-        for (let i = 0; i < leg.beats.length; i++) {
-          const b = 16 << i;
-          if (dl < leg.beats[i][0] * ll && !(beats & b)) {
-            beats |= b;
-            hud.story(leg.beats[i][1], leg.beats[i][2] || "");
-          }
-        }
-        // final-leg ambush: the scavengers defend their meal - heavy +
-        // drones drop in inside the last 3k, before you can dock
-        if (run.legs === LEGS.length - 1 && dl < 3000 && !(beats & 4)) {
-          beats |= 4;
-          ent.spawnShip("heavy");
-          ent.spawnShip("drone");
-          ent.spawnShip("drone");
-          run.waveSize = ent.countAlive(); run.waveKills = 0;
-          run.phase = "fight";
-          au.sfx("wave");
-          hud.flash("the pack alpha guards the wreck", 2.2, "#e85444");
-          hud.story("ambush - the alpha will not give up its meal", "#e85444");
-        }
-        if (dl < 700 && !(beats & 8)) {
-          beats |= 8;
-          run.legs++;
-          run.score += 800;
-          const patched = run.hull < run.hullMax;
-          if (patched) run.hull++;
-          au.sfx("gate");
-          fx.burst(lm.x, lm.y, lm.z, [1, 0.82, 0.35], 120, 120);
-          fx.escort(); // rescued pods ride your tail for a few seconds
-          hud.flash(
-            run.legs === 1 ? `crew aboard${patched ? " - hull patched" : ""} +800`
-              : `survivors aboard x${run.legs} +800`, 2.6, "#66f2b2");
-          hud.story(leg.done, "#66f2b2");
-          if (run.legs >= LEGS.length) {
-            run.storyDone = true;
-            course.finishStory();
-            hud.campaignDone(run);
-            hud.flash("rescue complete - endless run", 2.8, "#66f2b2");
-            hud.story("the blackbird is empty - the void is yours", "#66f2b2");
-          } else course.respawnLm(run.legs);
-        }
-      }
-    }
+    story();
+    if (run.phase === "dock") return dockFrame(0);
 
     const ev = run.invuln <= 0 ? course.check(prevZ) : null;
     if (ev) {
@@ -437,11 +455,12 @@ export function createSpace(field, PF, mods = {}) {
         run.score += pts;
         run.combo++;
         au.sfx("gate");
-        hud.flash(`gate +${pts}`, 0.8);
+        if (ev.kind === "boost") { cam.boost = 1; cam.kick(1.3, 1.7); }
+        hud.pop(`${RELAY[ev.kind] || "relay"} lit +${pts}`);
         if (run.phase === "race" && ++run.gatesPassed % 6 === 0) startFight();
       } else if (ev.type === "miss") {
         run.combo = 0;
-        hud.flash("missed", 0.9);
+        hud.flash("relay dark - signal degrading", 1.4);
       } else {
         run.combo = 0;
         crash();
@@ -469,14 +488,16 @@ export function createSpace(field, PF, mods = {}) {
     }
 
     course.frame(dt, snapTrack);
+    cine.wreck(dt);
     run.next = course.next;
     ent.frame(dt, snapTrack, run.phase === "fight");
     fx.frame(dt, snapTrack);
+    deck.frame(dt, run, world); // first: cockpit reads this frame's deck.pad
     cockpit.frame(dt, run, world, chase);
     exterior.frame(dt, chase, snapTrack);
-    deck.frame(dt, run, world);
     deck.cull(WORLD);
     hud.frame(dt, run, cam);
+    comms.frame(dt, cine.draw);
   };
   return game;
 }

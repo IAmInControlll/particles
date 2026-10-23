@@ -28,7 +28,7 @@ export function createFx(field, cam, PF, layer) {
   // seconds - warm lights in a loose column astern, staggered in per pod
   const ePh = new Float32Array(ESC), eD = new Float32Array(ESC);
   for (let i = 0; i < ESC; i++) { ePh[i] = rnd() * 6.283; eD[i] = i * 0.16; }
-  let escT = 0, fxT = 0;
+  let escT = 0, escDur = 6, fxT = 0, eFrom = null;
 
   // motes surround the camera in a sphere so drift/strafe reads in every direction
   const respawn = (i) => {
@@ -77,7 +77,11 @@ export function createFx(field, cam, PF, layer) {
     }
   };
 
-  fx.escort = () => { escT = 6; };
+  // from: optional world point the pods launch out of (the carrier's hull)
+  fx.escort = (from, secs = 6) => {
+    escT = escDur = secs;
+    eFrom = from ? [from.x, from.y, from.z] : null;
+  };
   fx.escT = () => escT;
 
   fx.frame = (dt, snapMode) => {
@@ -168,9 +172,14 @@ export function createFx(field, cam, PF, layer) {
       const back = 45 + i * 15 + Math.sin(ePh[i] + fxT * 2) * 6;
       const lx = Math.sin(ePh[i] * 2 + fxT * 1.7) * 9;
       const ly = Math.cos(ePh[i] + fxT * 1.3) * 6;
-      const wx = cam.x - cam.fwd[0] * back + cam.right[0] * lx + cam.up[0] * ly;
-      const wy = cam.y - cam.fwd[1] * back + cam.right[1] * lx + cam.up[1] * ly;
-      const wz = cam.z - cam.fwd[2] * back + cam.right[2] * lx + cam.up[2] * ly;
+      let wx = cam.x - cam.fwd[0] * back + cam.right[0] * lx + cam.up[0] * ly;
+      let wy = cam.y - cam.fwd[1] * back + cam.right[1] * lx + cam.up[1] * ly;
+      let wz = cam.z - cam.fwd[2] * back + cam.right[2] * lx + cam.up[2] * ly;
+      if (eFrom) { // staggered launch: each pod eases from the hull into its slot
+        let m = Math.max(0, Math.min(1, (escDur - escT - i * 0.2) / 2.4));
+        m = m * m * (3 - 2 * m);
+        wx = eFrom[0] + (wx - eFrom[0]) * m; wy = eFrom[1] + (wy - eFrom[1]) * m; wz = eFrom[2] + (wz - eFrom[2]) * m;
+      }
       if (!cam.project(wx, wy, wz)) {
         home[j] = -5e3; home[j + 1] = -5e3; home[j + 2] = 0;
         snap[p] = 1;

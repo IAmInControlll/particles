@@ -7,9 +7,15 @@
 <link rel="icon" href="data:,">
 <style>
   html, body { margin: 0; height: 100%; overflow: hidden; background: #030409; }
-  canvas.pf-gl { position: fixed; inset: 0; width: 100vw; height: 100vh; }
+  /* plus-lighter: particles add onto the painted sky (sky.js) instead of
+     compositing over it - dim sprites would otherwise punch dark holes */
+  canvas.pf-gl { position: fixed; inset: 0; width: 100vw; height: 100vh;
+    mix-blend-mode: plus-lighter; }
   #deck { position: fixed; inset: 0; width: 100vw; height: 100vh;
     z-index: 5; pointer-events: none; }
+  /* comms box + cutscene letterbox ride ABOVE the GL canvas (z6) */
+  #comms { position: fixed; inset: 0; width: 100vw; height: 100vh;
+    z-index: 8; pointer-events: none; }
 
   .hud { position: fixed; z-index: 10; color: #9fb6bb; pointer-events: none;
     font: 12px/1.6 ui-monospace, Consolas, monospace; text-shadow: 0 0 6px #000; }
@@ -19,6 +25,8 @@
     transition: opacity .3s; text-transform: uppercase; }
   #hud-keys { left: 50%; bottom: 10px; transform: translateX(-50%);
     color: #4d6a70; font-size: 11px; }
+  /* no keyboard on a portrait phone; the line overprints the dash grid */
+  @media (orientation: portrait) { #hud-keys { display: none; } }
 
   #over {
     position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%);
@@ -34,6 +42,7 @@
     border-radius: 3px; padding: 4px 8px; font: inherit; width: 140px; text-align: center;
   }
   #over .hint { color: #5f7a80; font-size: 11px; }
+  #over .souls { font-size: 17px; letter-spacing: .16em; color: #66f2b2; margin: 4px 0 2px; }
 
   #pick {
     position: fixed; left: 50%; top: 58%; transform: translate(-50%, -50%);
@@ -43,6 +52,8 @@
     border-radius: 6px; padding: 16px 28px; backdrop-filter: blur(5px);
   }
   #pick h2 { margin: 0 0 4px; font-size: 15px; letter-spacing: .2em; color: #bfe8d8; }
+  #pick .brief { color: #c8dade; margin-bottom: 10px; padding-bottom: 8px;
+    border-bottom: 1px solid rgba(120, 160, 170, .18); }
   #pick .ship { margin-top: 8px; color: #9fb6bb; cursor: pointer; }
   #pick .ship:hover, #pick .ship.cur { color: #e8f4ee; }
   #pick .ship.cur { text-shadow: 0 0 8px rgba(140, 220, 190, .4); }
@@ -67,6 +78,7 @@
 </head>
 <body>
 <canvas id="deck"></canvas>
+<canvas id="comms"></canvas>
 <div id="hud-tl" class="hud"></div>
 <div id="hud-msg" class="hud"></div>
 <div id="hud-keys" class="hud">W/S thrust &middot; A/D strafe &middot; R/F lift &middot; arrows steer &middot; Q/E roll &middot; shift boost &middot; ctrl drift &middot; space fire &middot; T track &middot; M mute</div>
